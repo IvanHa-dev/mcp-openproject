@@ -28,9 +28,12 @@ import type {
 } from '../protocol'
 import {
   commentDraftAtom,
+  configAgentDraftAtom,
   confirmTicketUpdate,
   descriptionOpenAtom,
   launchAgentForSelectedTicket,
+  launchCreateWorktreeAtom,
+  launchPanelOpenAtom,
   nextAssigneeDraftAtom,
   nextResponsibleDraftAtom,
   nextStatusDraftAtom,
@@ -102,7 +105,40 @@ export function TicketDetailView({
   const selectedWsObj =
     workspaces.find((w) => w.id === selectedWsId) ?? bestMatchedWs
   const selectedWsLabel =
-    selectedWsObj?.repoName || selectedWsObj?.name || 'default'
+    selectedWsObj?.repoName &&
+    selectedWsObj?.name &&
+    selectedWsObj.name !== selectedWsObj.repoName
+      ? `${selectedWsObj.repoName}/${selectedWsObj.name}`
+      : selectedWsObj?.repoName || selectedWsObj?.name || 'default'
+
+  const launchPanelOpen = read(launchPanelOpenAtom)
+  const createWorktree = read(launchCreateWorktreeAtom)
+  const selectedAgent = read(configAgentDraftAtom) || 'codex'
+
+  const workspaceOptions =
+    workspaces.length > 0
+      ? workspaces.map((ws) => {
+          const baseName =
+            ws.repoName && ws.name && ws.name !== ws.repoName
+              ? `${ws.repoName} / ${ws.name}`
+              : ws.repoName || ws.name
+          const branchInfo =
+            ws.branch && ws.branch !== ws.name ? ` (${ws.branch})` : ''
+          const activeTag = ws.isFocused ? ' ★' : ''
+          return {
+            value: ws.id,
+            label: `${baseName}${branchInfo}${activeTag}`
+          }
+        })
+      : [{ value: selectedWsId || 'default-workspace', label: selectedWsLabel }]
+
+  const agentOptions = [
+    { value: 'antigravity', label: 'Antigravity (agy)' },
+    { value: 'codex', label: 'OpenAI Codex (codex)' },
+    { value: 'claude', label: 'Claude Code (claude)' },
+    { value: 'cursor', label: 'Cursor Agent (cursor)' },
+    { value: 'opencode', label: 'OpenCode (opencode)' }
+  ]
 
   const parentWp = ticket.parentId
     ? allWorkPackages.find((w) => w.id === ticket.parentId)
@@ -122,11 +158,12 @@ export function TicketDetailView({
           <Button
             size="xs"
             tone="accent"
+            variant={launchPanelOpen ? 'solid' : 'outline'}
             tooltip={tr('ticket.launchAgentTooltip', {
               branch: branchSlug,
               workspace: selectedWsLabel
             })}
-            onPress={() => launchAgentForSelectedTicket(ticket.id)}
+            onPress={() => set(launchPanelOpenAtom, !launchPanelOpen)}
           >
             {tr('ticket.launchAgent')}
           </Button>
@@ -160,6 +197,75 @@ export function TicketDetailView({
           onPress={() => set(ticketDetailExpandedAtom, false)}
         />
       </Row>
+
+      {/* Inline Launch Agent Configuration Drawer */}
+      {launchPanelOpen ? (
+        <Box
+          border="accent"
+          background="surface"
+          radius="sm"
+          padding="sm"
+        >
+          <Stack gap="xs">
+            <Stack gap="xs">
+              <Text size="xs" weight="medium">
+                {tr('ticket.targetWorkspaceLabel')}
+              </Text>
+              <Select
+                label={tr('ticket.targetWorkspaceLabel')}
+                value={selectedWsId}
+                options={workspaceOptions}
+                onChange={(v) => set(targetWorkspaceIdAtom, v)}
+              />
+            </Stack>
+            <Stack gap="xs">
+              <Text size="xs" weight="medium">
+                {tr('ticket.launchAgentSelectLabel')}
+              </Text>
+              <Select
+                label={tr('ticket.launchAgentSelectLabel')}
+                value={selectedAgent}
+                options={agentOptions}
+                onChange={(v) => set(configAgentDraftAtom, v)}
+              />
+            </Stack>
+            <Row gap="xs" align="center" wrap>
+              <Button
+                size="xs"
+                tone={!createWorktree ? 'accent' : undefined}
+                variant={!createWorktree ? 'solid' : 'outline'}
+                onPress={() => set(launchCreateWorktreeAtom, false)}
+              >
+                {tr('ticket.launchModeExisting')}
+              </Button>
+              <Button
+                size="xs"
+                tone={createWorktree ? 'accent' : undefined}
+                variant={createWorktree ? 'solid' : 'outline'}
+                onPress={() => set(launchCreateWorktreeAtom, true)}
+              >
+                {tr('ticket.launchModeWorktree', { branch: branchSlug })}
+              </Button>
+            </Row>
+            <Row gap="xs" align="center">
+              <Button
+                size="xs"
+                tone="accent"
+                onPress={() => launchAgentForSelectedTicket(ticket.id)}
+              >
+                {tr('ticket.startAgentButton')}
+              </Button>
+              <Button
+                size="xs"
+                variant="outline"
+                onPress={() => set(launchPanelOpenAtom, false)}
+              >
+                {tr('ticket.cancelLaunchButton')}
+              </Button>
+            </Row>
+          </Stack>
+        </Box>
+      ) : null}
 
       {/* Row 2: Parent Jump + Add Subtask + Bordered Updated Date */}
       {ticket.parentId || canCreateSubtask || ticket.updatedAt ? (

@@ -44,6 +44,8 @@ export const ticketDetailExpandedAtom = atom<boolean>(true)
 export const descriptionOpenAtom = atom<boolean>(true)
 export const focusAnchorTicketIdAtom = atom<number | null>(null)
 export const targetWorkspaceIdAtom = atom<string>('')
+export const launchPanelOpenAtom = atom<boolean>(false)
+export const launchCreateWorktreeAtom = atom<boolean>(false)
 
 export const nextStatusDraftAtom = atom<string>('')
 export const nextAssigneeDraftAtom = atom<string>('0')
@@ -270,6 +272,7 @@ export async function selectTicket(
     }
 
     set(ticketDetailExpandedAtom, true)
+    set(launchPanelOpenAtom, false)
 
     const cachedWp = currentSnapshot?.workPackages.find((wp) => wp.id === id)
     if (currentSnapshot && cachedWp) {
@@ -435,6 +438,7 @@ export async function createNewTicket(): Promise<void> {
     set(newTicketParentAtom, '0')
     set(activeTabAtom, 'tickets')
     set(ticketDetailExpandedAtom, true)
+    set(launchPanelOpenAtom, false)
     const snapshot = await plugin.request('openproject.state.get')
     syncDraftsFromSnapshot(snapshot, true)
     set(feedbackMessageAtom, { tone: 'success', text: res.summary })
@@ -452,12 +456,14 @@ export async function launchAgentForSelectedTicket(
   const locale = read(localeAtom)
   try {
     const selectedWsId = read(targetWorkspaceIdAtom).trim()
+    const createWorktree = read(launchCreateWorktreeAtom)
     const res = await plugin.request('openproject.agent.launch', {
       ticketId,
       agent: read(configAgentDraftAtom),
       ...(selectedWsId ? { workspaceId: selectedWsId } : {}),
-      createWorktree: true
+      createWorktree
     })
+    set(launchPanelOpenAtom, false)
     set(feedbackMessageAtom, {
       tone: 'accent',
       text: t(locale, 'feedback.launchedAgent', {

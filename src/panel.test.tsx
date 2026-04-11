@@ -121,8 +121,10 @@ test('renders tickets, previews guarded update, confirms update, and launches ag
   assert.equal(confirmCalls, 1)
   assert.ok(view.find({ text: /\[CONFIRMED\] Updated #1428/ }))
 
-  // Launch agent on ticket
+  // Launch agent on ticket (click Launch Agent to open config drawer, then Start Agent)
   await view.press({ text: 'Launch Agent' })
+  assert.ok(view.find({ text: 'Start Agent' }))
+  await view.press({ text: 'Start Agent' })
   assert.equal(launchedTicketId, 1428)
   assert.ok(view.find({ text: /op-1428-fix-oauth-token-refresh/ }))
 
@@ -317,14 +319,17 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
       id: 'ws-mobile',
       name: 'dev',
       path: '/home/dev/orca/acme-mobile',
+      branch: 'dev',
+      kind: 'folder',
       repoName: 'acme-mobile'
     },
     {
       id: 'ws-frontend',
       name: 'ui-refresh',
       path: '/home/dev/orca/acme-frontend',
-      repoName: 'acme-frontend',
-      branch: 'ui-refresh'
+      branch: 'ui-refresh',
+      kind: 'worktree',
+      repoName: 'acme-frontend'
     }
   ]
 
@@ -394,8 +399,10 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
   assert.ok(view.find({ text: '↑ Parent: #123' }))
   assert.ok(view.find({ text: /Child task description/ }))
 
-  // Launching agent on child task #124 automatically uses matched acme-frontend workspace instead of ws-mobile
+  // Launching agent on child task #124 opens launch config with matched acme-frontend workspace pre-selected
   await view.press({ text: 'Launch Agent' })
+  assert.ok(view.find({ text: 'Start Agent' }))
+  await view.press({ text: 'Start Agent' })
   assert.equal(launchedWsId, 'ws-frontend')
 
   // Clicking ↑ Parent: #123 auto-focuses parent #123 back in-place

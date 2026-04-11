@@ -212,10 +212,11 @@ export function matchBestWorkspaceForTicket(
 
       // Prefer primary repo checkout (main/master/develop) over unrelated feature worktrees
       const isPrimaryCheckout =
-        !ws.path.includes('/orca/worktrees/') ||
+        (!ws.path.includes('/orca/worktrees/') &&
+          !ws.path.includes('/orca/workspaces/')) ||
         ['main', 'master', 'develop', 'dev'].includes((ws.branch ?? '').toLowerCase())
       if (isPrimaryCheckout) score += 10
-      if (ws.isFocused) score += 15
+      if (ws.isFocused) score += 30
     }
 
     return score

@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -465,12 +466,62 @@ async function readStoredFocusProject(orca: OrcaWorkerApi): Promise<string> {
 
 function inferRepoNameFromWorkspacePath(wsPath: string, fallbackName: string): string {
   const normalized = (wsPath || '').replace(/\\/g, '/')
-  const wtMatch = normalized.match(/\/worktrees\/([^/]+)\//)
+  const wtMatch = normalized.match(/\/(?:worktrees|workspaces)\/([^/]+)\//)
   if (wtMatch?.[1]) {
     return wtMatch[1]
   }
   const base = path.posix.basename(normalized.replace(/\/+$/, ''))
   return base || fallbackName
+}
+
+function resolveOrcaCliPath(): string {
+  const home = os.homedir()
+  const candidates = [
+    path.join(home, '.config', 'orca', 'linux-orca-cli-shim', 'orca'),
+    '/usr/local/bin/orca',
+    'orca'
+  ]
+  for (const c of candidates) {
+    if (c === 'orca' || fs.existsSync(c)) {
+      return c
+    }
+  }
+  return 'orca'
+}
+
+function runOrcaCliJson(args: string[]): Promise<Record<string, unknown> | null> {
+  const bin = resolveOrcaCliPath()
+  return new Promise((resolve) => {
+    execFile(
+      bin,
+      args,
+      { timeout: 25000, maxBuffer: 2 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err && !stdout) {
+          resolve(null)
+          return
+        }
+        try {
+          const parsed = JSON.parse(String(stdout || '').trim()) as Record<
+            string,
+            unknown
+          >
+          if (parsed && parsed.ok === false) {
+            resolve(null)
+            return
+          }
+          resolve(parsed)
+        } catch {
+          resolve(null)
+        }
+      }
+    )
+  })
+}
+
+function isWorktreeWorkspacePath(wsPath: string): boolean {
+  const normalized = (wsPath || '').replace(/\\/g, '/')
+  return normalized.includes('/worktrees/') || normalized.includes('/orca/workspaces/')
 }
 
 async function readOrcaWorkspaces(
@@ -482,39 +533,53 @@ async function readOrcaWorkspaces(
       orca.host.call('workspace.readContext', {}).catch(() => ({ workspace: null }))
     ])
     const rawList = Array.isArray(listRes?.workspaces) ? listRes.workspaces : []
-    const focusedId = ctxRes?.workspace?.id ?? ''
+    const ctxAny = (ctxRes ?? {}) as {
+      workspace?: { id?: string } | null
+      displayName?: string
+      branch?: string
+    }
+    const focusedId = ctxAny?.workspace?.id ?? ''
+    const focusedName = (ctxAny?.displayName ?? '').trim()
+    const focusedBranch = (ctxAny?.branch ?? '').trim()
     const mapped: OpenProjectWorkspaceOption[] = rawList.map((ws) => {
       const repoName = inferRepoNameFromWorkspacePath(ws.path, ws.name)
+      const isFocused = Boolean(
+        (focusedId && ws.id === focusedId) ||
+          (focusedName &&
+            ws.name === focusedName &&
+            (!focusedBranch || ws.branch === focusedBranch))
+      )
       return {
         id: ws.id,
         name: ws.name,
         path: ws.path,
-        ...(ws.branch ? { branch: ws.branch } : {}),
-        ...(ws.kind ? { kind: ws.kind } : {}),
+        branch: ws.branch ?? null,
+        kind: ws.kind ?? 'folder',
         repoName,
-        isFocused: Boolean(focusedId && ws.id === focusedId)
+        isFocused
       }
     })
     const sorted = mapped.sort((a, b) => {
       if (a.isFocused && !b.isFocused) return -1
       if (!a.isFocused && b.isFocused) return 1
-      const aPrimary = !a.path.includes('/worktrees/')
-      const bPrimary = !b.path.includes('/worktrees/')
+      const aPrimary = !isWorktreeWorkspacePath(a.path)
+      const bPrimary = !isWorktreeWorkspacePath(b.path)
       if (aPrimary && !bPrimary) return -1
       if (!aPrimary && bPrimary) return 1
       return (a.repoName || a.name).localeCompare(b.repoName || b.name)
     })
-    // Deduplicate by repoName (keep primary/focused entry per repo + any task worktrees up to 20 total)
-    const seenRepos = new Set<string>()
+    // Keep up to 2 entries per repoName (primary repo + active/focused worktree) up to 25 total
+    const countByRepo = new Map<string, number>()
     const deduped: OpenProjectWorkspaceOption[] = []
     for (const ws of sorted) {
       const key = (ws.repoName || ws.name).toLowerCase()
-      if (!seenRepos.has(key) || ws.isFocused) {
-        seenRepos.add(key)
+      const currentCount = countByRepo.get(key) ?? 0
+      if (currentCount < 2 || ws.isFocused) {
+        countByRepo.set(key, currentCount + 1)
         deduped.push(ws)
       }
     }
-    return deduped.slice(0, 20)
+    return deduped.slice(0, 25)
   } catch {
     return []
   }
@@ -1880,7 +1945,10 @@ export default function activate(orca: OrcaWorkerApi): void {
 
     const workspaceId =
       matchedWs?.id || requestedWsId || workspaces[0]?.id || 'default-workspace'
-    const workspaceName = matchedWs?.repoName || matchedWs?.name || workspaceId
+    const workspaceName =
+      matchedWs?.repoName && matchedWs?.name && matchedWs.name !== matchedWs.repoName
+        ? `${matchedWs.repoName}/${matchedWs.name}`
+        : matchedWs?.repoName || matchedWs?.name || workspaceId
     const agent = input.agent?.trim() || creds.defaultAgent || 'codex'
     const branchSlug = formatWorktreeBranchSlug(ticket.id, ticket.subject)
     const parentTicket = ticket.parentId
@@ -1891,23 +1959,103 @@ export default function activate(orca: OrcaWorkerApi): void {
       .sort((a, b) => a.id - b.id)
     const prompt = buildAgentTicketPrompt(ticket, branchSlug, parentTicket, subtasks)
 
-    const launchRes = await orca.host.call('agent.launch', {
-      workspaceId,
-      agent,
-      prompt
-    })
+    let terminalId = ''
+    let createdWorktree = false
+    let focused = false
+
+    const wsPath = matchedWs?.path || ''
+    if (wsPath && fs.existsSync(wsPath)) {
+      if (input.createWorktree === true) {
+        const wtRes = (await runOrcaCliJson([
+          'worktree',
+          'create',
+          '--repo',
+          `path:${wsPath}`,
+          '--name',
+          branchSlug,
+          '--no-parent',
+          '--agent',
+          agent,
+          '--prompt',
+          prompt,
+          '--activate',
+          '--json'
+        ])) as {
+          result?: {
+            launch?: { outcome?: { handle?: string } }
+            agentTerminalHandle?: string
+            worktree?: { id?: string }
+          }
+        } | null
+        const wtHandle =
+          wtRes?.result?.launch?.outcome?.handle ||
+          wtRes?.result?.agentTerminalHandle ||
+          wtRes?.result?.worktree?.id ||
+          ''
+        if (wtHandle) {
+          terminalId = wtHandle
+          createdWorktree = true
+          focused = true
+          if (wtHandle.startsWith('term_')) {
+            await runOrcaCliJson(['terminal', 'switch', '--terminal', wtHandle, '--json'])
+          }
+        }
+      } else {
+        const cliLaunchRes = (await runOrcaCliJson([
+          'agent',
+          'launch',
+          '--agent',
+          agent,
+          '--worktree',
+          `path:${wsPath}`,
+          '--prompt',
+          prompt,
+          '--focus',
+          '--json'
+        ])) as {
+          result?: {
+            launch?: { outcome?: { handle?: string } }
+            terminal?: { handle?: string }
+            terminalId?: string
+          }
+        } | null
+        const cliHandle =
+          cliLaunchRes?.result?.launch?.outcome?.handle ||
+          cliLaunchRes?.result?.terminal?.handle ||
+          cliLaunchRes?.result?.terminalId ||
+          ''
+        if (cliHandle) {
+          terminalId = cliHandle
+          focused = true
+          if (cliHandle.startsWith('term_')) {
+            await runOrcaCliJson(['terminal', 'switch', '--terminal', cliHandle, '--json'])
+          }
+        }
+      }
+    }
+
+    if (!terminalId) {
+      const launchRes = await orca.host.call('agent.launch', {
+        workspaceId,
+        agent,
+        prompt
+      })
+      terminalId = launchRes.terminalId
+    }
 
     await orca.host.call('notifications.show', {
       title: `Started ${agent} on #${ticket.id}`,
-      body: `${ticket.subject} (${workspaceName} · ${branchSlug})`
+      body: `${ticket.subject} (${workspaceName}${createdWorktree ? ` · ${branchSlug}` : ''})`
     })
 
     return {
-      terminalId: launchRes.terminalId,
+      terminalId,
       workspaceId,
       workspaceName,
       branchSlug,
-      agent
+      agent,
+      createdWorktree,
+      focused
     }
   })
 
