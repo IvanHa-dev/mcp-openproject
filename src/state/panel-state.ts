@@ -265,8 +265,13 @@ export async function selectTicket(
     }
 
     if (fromAnchorId !== undefined) {
-      const existingAnchor = read(focusAnchorTicketIdAtom)
-      set(focusAnchorTicketIdAtom, existingAnchor ?? fromAnchorId)
+      set(focusAnchorTicketIdAtom, id)
+      const timer = setTimeout(() => {
+        if (read(focusAnchorTicketIdAtom) === id) {
+          set(focusAnchorTicketIdAtom, null)
+        }
+      }, 65)
+      ;(timer as unknown as { unref?: () => void })?.unref?.()
     } else {
       set(focusAnchorTicketIdAtom, null)
     }

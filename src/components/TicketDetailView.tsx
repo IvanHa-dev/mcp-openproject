@@ -322,7 +322,7 @@ export function TicketDetailView({
         >
           <Box
             width="100%"
-            maxHeight={210}
+            maxHeight={420}
             scroll="y"
             border="neutral"
             background="card"

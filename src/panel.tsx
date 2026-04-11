@@ -378,29 +378,29 @@ export default function Panel() {
 
   const pageSlice = filteredTickets.slice(0, Number(pageSize) || 100)
   const displayedTickets = (() => {
-    if (
-      !selectedTicket ||
-      !ticketDetailExpanded ||
-      !focusAnchorId ||
-      focusAnchorId === selectedTicket.id
-    ) {
+    if (!selectedTicket) {
       return pageSlice
     }
-    const anchorIdx = pageSlice.findIndex((w) => w.id === focusAnchorId)
-    if (anchorIdx !== -1) {
-      const nextList = [...pageSlice]
-      const selectedIdx = nextList.findIndex((w) => w.id === selectedTicket.id)
-      if (selectedIdx !== -1) {
-        const anchorTicket = nextList[anchorIdx]
-        nextList[anchorIdx] = selectedTicket
-        nextList[selectedIdx] = anchorTicket
-        return nextList
-      }
-      nextList.splice(anchorIdx, 0, selectedTicket)
-      return nextList
-    }
-    return [selectedTicket, ...pageSlice]
+    const inSlice = pageSlice.some((w) => w.id === selectedTicket.id)
+    return inSlice ? pageSlice : [selectedTicket, ...pageSlice]
   })()
+  const selectedIdx = selectedTicket
+    ? displayedTickets.findIndex((w) => w.id === selectedTicket.id)
+    : -1
+  const isAutoScrollPulse = Boolean(
+    selectedTicket &&
+      ticketDetailExpanded &&
+      focusAnchorId === selectedTicket.id &&
+      selectedIdx !== -1
+  )
+  const ticketsAboveSelected =
+    selectedIdx > 0 ? displayedTickets.slice(0, selectedIdx) : []
+  const selectedTicketInList =
+    selectedIdx !== -1 ? displayedTickets[selectedIdx] : null
+  const ticketsBelowSelected =
+    selectedIdx !== -1
+      ? displayedTickets.slice(selectedIdx + 1)
+      : displayedTickets
 
   return (
     <Stack gap="sm">
@@ -431,19 +431,21 @@ export default function Panel() {
       >
         <Tab value="tickets" label={tr('tabs.tickets')}>
           <Stack gap="sm">
-            {TicketFilters({
-              locale,
-              scopeMode,
-              projectFilter,
-              statusFilter,
-              priorityFilter,
-              pageSize,
-              searchQuery,
-              priorities,
-              projectOptions,
-              statusFilterOptions,
-              hasActiveFilters
-            })}
+            {!isAutoScrollPulse
+              ? TicketFilters({
+                  locale,
+                  scopeMode,
+                  projectFilter,
+                  statusFilter,
+                  priorityFilter,
+                  pageSize,
+                  searchQuery,
+                  priorities,
+                  projectOptions,
+                  statusFilterOptions,
+                  hasActiveFilters
+                })
+              : null}
 
             {snapshot === null ? (
               <Spinner label={tr('tickets.loading')} />
@@ -469,8 +471,32 @@ export default function Panel() {
               />
             ) : (
               <Stack gap="xs">
-                {displayedTickets.map((wp) => renderWorkPackageCard(wp))}
-                <Box height={180} />
+                <Box key="above-selected">
+                  {!isAutoScrollPulse && ticketsAboveSelected.length > 0 ? (
+                    <Stack gap="xs">
+                      {ticketsAboveSelected.map((wp) =>
+                        renderWorkPackageCard(wp)
+                      )}
+                    </Stack>
+                  ) : null}
+                </Box>
+                {selectedTicketInList ? (
+                  <Box key="selected-anchor">
+                    {renderWorkPackageCard(selectedTicketInList)}
+                  </Box>
+                ) : null}
+                <Box key="below-selected">
+                  {!isAutoScrollPulse ? (
+                    <Stack gap="xs">
+                      {ticketsBelowSelected.map((wp) =>
+                        renderWorkPackageCard(wp)
+                      )}
+                      <Box height={180} />
+                    </Stack>
+                  ) : (
+                    <Box height={900} />
+                  )}
+                </Box>
               </Stack>
             )}
           </Stack>
