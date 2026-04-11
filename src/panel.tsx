@@ -378,28 +378,28 @@ export default function Panel() {
 
   const pageSlice = filteredTickets.slice(0, Number(pageSize) || 100)
   const displayedTickets = (() => {
-    if (!selectedTicket || !ticketDetailExpanded) {
+    if (
+      !selectedTicket ||
+      !ticketDetailExpanded ||
+      !focusAnchorId ||
+      focusAnchorId === selectedTicket.id
+    ) {
       return pageSlice
     }
-    if (focusAnchorId && focusAnchorId !== selectedTicket.id) {
-      const anchorIdx = pageSlice.findIndex((w) => w.id === focusAnchorId)
-      if (anchorIdx !== -1) {
-        const withoutSelected = pageSlice.filter(
-          (w) => w.id !== selectedTicket.id
-        )
-        const nextAnchorIdx = withoutSelected.findIndex(
-          (w) => w.id === focusAnchorId
-        )
-        const insertIdx = nextAnchorIdx !== -1 ? nextAnchorIdx : anchorIdx
-        return [
-          ...withoutSelected.slice(0, insertIdx),
-          selectedTicket,
-          ...withoutSelected.slice(insertIdx)
-        ]
-      }
-    }
-    if (!pageSlice.some((w) => w.id === selectedTicket.id)) {
-      return [selectedTicket, ...pageSlice]
+    const anchorIdx = pageSlice.findIndex((w) => w.id === focusAnchorId)
+    if (anchorIdx !== -1) {
+      const withoutSelected = pageSlice.filter(
+        (w) => w.id !== selectedTicket.id
+      )
+      const nextAnchorIdx = withoutSelected.findIndex(
+        (w) => w.id === focusAnchorId
+      )
+      const insertIdx = nextAnchorIdx !== -1 ? nextAnchorIdx : anchorIdx
+      return [
+        ...withoutSelected.slice(0, insertIdx),
+        selectedTicket,
+        ...withoutSelected.slice(insertIdx)
+      ]
     }
     return pageSlice
   })()

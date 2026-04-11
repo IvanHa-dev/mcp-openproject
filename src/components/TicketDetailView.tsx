@@ -104,20 +104,6 @@ export function TicketDetailView({
   const selectedWsLabel =
     selectedWsObj?.repoName || selectedWsObj?.name || 'default'
 
-  const workspaceOptions = workspaces.map((ws) => {
-    const repo = ws.repoName || ws.name
-    const isMainRepo = !ws.path.includes('/worktrees/')
-    const suffix = isMainRepo
-      ? ws.branch
-        ? ` (${ws.branch.replace(/^refs\/heads\//, '')})`
-        : ''
-      : ` · ${ws.name}`
-    return {
-      value: ws.id,
-      label: `${repo}${suffix}`
-    }
-  })
-
   const parentWp = ticket.parentId
     ? allWorkPackages.find((w) => w.id === ticket.parentId)
     : undefined
@@ -174,15 +160,6 @@ export function TicketDetailView({
           onPress={() => set(ticketDetailExpandedAtom, false)}
         />
       </Row>
-
-      {workspaceOptions.length > 0 ? (
-        <Select
-          label={tr('ticket.targetWorkspaceLabel')}
-          value={selectedWsId}
-          options={workspaceOptions}
-          onChange={(val) => set(targetWorkspaceIdAtom, val)}
-        />
-      ) : null}
 
       {/* Row 2: Parent Jump + Add Subtask + Bordered Updated Date */}
       {ticket.parentId || canCreateSubtask || ticket.updatedAt ? (

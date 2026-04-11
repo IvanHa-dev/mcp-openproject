@@ -92,13 +92,6 @@ export function syncDraftsFromSnapshot(
   if (snapshot.config.pageSize) {
     set(pageSizeAtom, String(snapshot.config.pageSize))
   }
-  if (
-    snapshot.config.focusProject &&
-    snapshot.config.focusProject !== 'all' &&
-    read(projectFilterAtom) === 'all'
-  ) {
-    set(projectFilterAtom, snapshot.config.focusProject)
-  }
 
   const writableProjects = snapshot.projects.filter(
     (p) => p.canCreateWorkPackage !== false
@@ -182,6 +175,7 @@ export async function refreshAll(): Promise<void> {
 
 export async function changeProjectFilter(nextProject: string): Promise<void> {
   set(projectFilterAtom, nextProject)
+  set(focusAnchorTicketIdAtom, null)
   const currentLimit = Number(read(pageSizeAtom) || '100')
   const currentStatus = read(statusFilterAtom)
   const wantClosed = isStatusClosedName(currentStatus)
@@ -206,6 +200,7 @@ export async function changeProjectFilter(nextProject: string): Promise<void> {
 
 export async function changeStatusFilter(nextStatus: string): Promise<void> {
   set(statusFilterAtom, nextStatus)
+  set(focusAnchorTicketIdAtom, null)
   if (!isStatusClosedName(nextStatus)) {
     return
   }
@@ -271,7 +266,7 @@ export async function selectTicket(
       const existingAnchor = read(focusAnchorTicketIdAtom)
       set(focusAnchorTicketIdAtom, existingAnchor ?? fromAnchorId)
     } else {
-      set(focusAnchorTicketIdAtom, id)
+      set(focusAnchorTicketIdAtom, null)
     }
 
     set(ticketDetailExpandedAtom, true)
@@ -544,6 +539,7 @@ export function resetAllFilters(): void {
   set(statusFilterAtom, 'all')
   set(priorityFilterAtom, 'all')
   set(searchQueryAtom, '')
+  set(focusAnchorTicketIdAtom, null)
   if (prevProject && prevProject !== 'all') {
     void changeProjectFilter('all')
   }

@@ -499,7 +499,7 @@ async function readOrcaWorkspaces(
         isFocused: Boolean(focusedId && ws.id === focusedId)
       }
     })
-    return mapped.sort((a, b) => {
+    const sorted = mapped.sort((a, b) => {
       if (a.isFocused && !b.isFocused) return -1
       if (!a.isFocused && b.isFocused) return 1
       const aPrimary = !a.path.includes('/worktrees/')
@@ -508,6 +508,17 @@ async function readOrcaWorkspaces(
       if (!aPrimary && bPrimary) return 1
       return (a.repoName || a.name).localeCompare(b.repoName || b.name)
     })
+    // Deduplicate by repoName (keep primary/focused entry per repo + any task worktrees up to 20 total)
+    const seenRepos = new Set<string>()
+    const deduped: OpenProjectWorkspaceOption[] = []
+    for (const ws of sorted) {
+      const key = (ws.repoName || ws.name).toLowerCase()
+      if (!seenRepos.has(key) || ws.isFocused) {
+        seenRepos.add(key)
+        deduped.push(ws)
+      }
+    }
+    return deduped.slice(0, 20)
   } catch {
     return []
   }
@@ -625,7 +636,45 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
       ? filteredWorkPackages.find((wp) => wp.id === selectedId) ?? null
       : null
 
-  const activities = selectedTicket ? activitiesMap[String(selectedTicket.id)] ?? [] : []
+  // Keep snapshot well under Orca's 256 KiB IPC payload limit even at 200 tasks/page:
+  // Full description is preserved on selectedTicket, while list items carry a compact 200-char preview.
+  const baseSlice = filteredWorkPackages.slice(0, 240)
+  const baseIds = new Set<number>(baseSlice.map((w) => w.id))
+  if (selectedTicket) {
+    for (const wp of filteredWorkPackages) {
+      if (
+        !baseIds.has(wp.id) &&
+        (wp.id === selectedTicket.id ||
+          wp.id === selectedTicket.parentId ||
+          wp.parentId === selectedTicket.id)
+      ) {
+        baseIds.add(wp.id)
+        baseSlice.push(wp)
+      }
+    }
+  }
+  const compactWorkPackages: OpenProjectWorkPackage[] = baseSlice.map((wp) => {
+    if (selectedTicket && wp.id === selectedTicket.id) {
+      return {
+        ...wp,
+        description:
+          wp.description.length > 4000
+            ? `${wp.description.slice(0, 4000)}…`
+            : wp.description
+      }
+    }
+    return {
+      ...wp,
+      description:
+        wp.description.length > 200
+          ? `${wp.description.slice(0, 200)}…`
+          : wp.description
+    }
+  })
+
+  const activities = selectedTicket
+    ? (activitiesMap[String(selectedTicket.id)] ?? []).slice(-25)
+    : []
 
   const config: OpenProjectConfigSummary = {
     baseUrl: creds.baseUrl,
@@ -647,12 +696,20 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
         ? currentUserRaw
         : liveCache.currentUser,
     projects: filteredProjects,
-    workPackages: filteredWorkPackages,
+    workPackages: compactWorkPackages,
     statuses,
     types,
     priorities,
-    principals,
-    selectedTicket,
+    principals: principals.slice(0, 120),
+    selectedTicket: selectedTicket
+      ? {
+          ...selectedTicket,
+          description:
+            selectedTicket.description.length > 4000
+              ? `${selectedTicket.description.slice(0, 4000)}…`
+              : selectedTicket.description
+        }
+      : null,
     activities,
     detectedAgents: detectLocalAgentClis(),
     workspaces,
@@ -1137,7 +1194,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     )
     const storedFocus = await readStoredFocusProject(orca)
     const requestedProject =
-      input?.project && input.project.trim() && input.project.trim() !== 'all'
+      input?.project && input.project.trim()
         ? input.project.trim()
         : storedFocus
     const requestedPageSize = input?.pageSize
