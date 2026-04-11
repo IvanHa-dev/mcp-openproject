@@ -294,7 +294,7 @@ test('supports 50/100/200 per-page selector and checks OpenProject permission fo
 
   // Open + New Task tab and create a work package
   await view.select({ label: 'OpenProject Views' }, 'create')
-  await view.type({ label: 'Subject / Title' }, 'Optimize API pagination cache', { replace: true })
+  await view.type({ label: 'Subject' }, 'Optimize API pagination cache', { replace: true })
   await view.press({ text: 'Create Task' })
   assert.equal(createdSubject, 'Optimize API pagination cache')
   assert.ok(view.find({ text: /#1500 Optimize API pagination cache/ }))
