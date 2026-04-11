@@ -388,20 +388,18 @@ export default function Panel() {
     }
     const anchorIdx = pageSlice.findIndex((w) => w.id === focusAnchorId)
     if (anchorIdx !== -1) {
-      const withoutSelected = pageSlice.filter(
-        (w) => w.id !== selectedTicket.id
-      )
-      const nextAnchorIdx = withoutSelected.findIndex(
-        (w) => w.id === focusAnchorId
-      )
-      const insertIdx = nextAnchorIdx !== -1 ? nextAnchorIdx : anchorIdx
-      return [
-        ...withoutSelected.slice(0, insertIdx),
-        selectedTicket,
-        ...withoutSelected.slice(insertIdx)
-      ]
+      const nextList = [...pageSlice]
+      const selectedIdx = nextList.findIndex((w) => w.id === selectedTicket.id)
+      if (selectedIdx !== -1) {
+        const anchorTicket = nextList[anchorIdx]
+        nextList[anchorIdx] = selectedTicket
+        nextList[selectedIdx] = anchorTicket
+        return nextList
+      }
+      nextList.splice(anchorIdx, 0, selectedTicket)
+      return nextList
     }
-    return pageSlice
+    return [selectedTicket, ...pageSlice]
   })()
 
   return (

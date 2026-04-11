@@ -214,31 +214,41 @@ export function TicketDetailView({
           title={tr('ticket.subtasksTitle', { count: subtasks.length })}
           defaultOpen={true}
         >
-          <Stack gap="xs">
-            {subtasks.map((child) => {
-              const childStyle = getStatusToneStyle(
-                child.status,
-                child.statusColor
-              )
-              return (
-                <Box
-                  key={String(child.id)}
-                  border={childStyle.border}
-                  background={childStyle.background}
-                  radius="sm"
-                >
-                  <List label={`Subtask #${child.id}`}>
-                    <ListItem
-                      key={String(child.id)}
-                      title={`↳ #${child.id} ${child.subject}`}
-                      description={formatWorkPackageRowMeta(child, locale)}
-                      onPress={() => selectTicket(child.id, ticket.id)}
-                    />
-                  </List>
-                </Box>
-              )
-            })}
-          </Stack>
+          <Box
+            width="100%"
+            maxHeight={210}
+            scroll="y"
+            border="neutral"
+            background="card"
+            radius="sm"
+            padding="xs"
+          >
+            <Stack gap="xs">
+              {subtasks.map((child) => {
+                const childStyle = getStatusToneStyle(
+                  child.status,
+                  child.statusColor
+                )
+                return (
+                  <Box
+                    key={String(child.id)}
+                    border={childStyle.border}
+                    background={childStyle.background}
+                    radius="sm"
+                  >
+                    <List label={`Subtask #${child.id}`}>
+                      <ListItem
+                        key={String(child.id)}
+                        title={`↳ #${child.id} ${child.subject}`}
+                        description={formatWorkPackageRowMeta(child, locale)}
+                        onPress={() => selectTicket(child.id, ticket.id)}
+                      />
+                    </List>
+                  </Box>
+                )
+              })}
+            </Stack>
+          </Box>
         </Collapsible>
       ) : null}
 
