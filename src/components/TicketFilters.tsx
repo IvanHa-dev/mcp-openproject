@@ -113,6 +113,7 @@ export function TicketFilters({
       {/* Full-Width Stacked Filters: Project, Status, Search */}
       <Stack gap="xs">
         <Select
+          key={`project-filter-${statusFilter}`}
           label={tr('filters.projectLabel')}
           labelHidden
           value={projectFilter}
@@ -122,6 +123,7 @@ export function TicketFilters({
           }}
         />
         <Select
+          key={`status-filter-${projectFilter}`}
           label={tr('filters.statusLabel')}
           labelHidden
           value={statusFilter}

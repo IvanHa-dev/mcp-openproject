@@ -1523,6 +1523,18 @@ export default function activate(orca: OrcaWorkerApi): void {
           }
 
           liveCache.workPackages = nextWps
+          await orca.storage
+            .set(
+              STORAGE_KEYS.WORK_PACKAGES,
+              nextWps.map((wp) => ({
+                ...wp,
+                description:
+                  wp.description.length > 600
+                    ? `${wp.description.slice(0, 600)}…`
+                    : wp.description
+              })) as unknown as any
+            )
+            .catch(() => {})
         } catch {
           // Keep cached state if supplemental remote fetch fails
         }

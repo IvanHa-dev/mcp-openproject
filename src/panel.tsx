@@ -431,21 +431,19 @@ export default function Panel() {
       >
         <Tab value="tickets" label={tr('tabs.tickets')}>
           <Stack gap="sm">
-            {!isAutoScrollPulse
-              ? TicketFilters({
-                  locale,
-                  scopeMode,
-                  projectFilter,
-                  statusFilter,
-                  priorityFilter,
-                  pageSize,
-                  searchQuery,
-                  priorities,
-                  projectOptions,
-                  statusFilterOptions,
-                  hasActiveFilters
-                })
-              : null}
+            {TicketFilters({
+              locale,
+              scopeMode,
+              projectFilter,
+              statusFilter,
+              priorityFilter,
+              pageSize,
+              searchQuery,
+              priorities,
+              projectOptions,
+              statusFilterOptions,
+              hasActiveFilters
+            })}
 
             {snapshot === null ? (
               <Spinner label={tr('tickets.loading')} />
