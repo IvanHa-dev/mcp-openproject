@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { promisify } from 'node:util'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   buildAgentTicketPrompt,
@@ -15,6 +17,7 @@ import {
   mapHalStatus,
   mapHalType,
   mapHalWorkPackage,
+  matchBestWorkspaceForTicket,
   normalizeBaseUrl,
   sanitizePathSegment
 } from './openproject-api'
@@ -28,8 +31,11 @@ import type {
   OpenProjectStateSnapshot,
   OpenProjectStatusItem,
   OpenProjectTypeItem,
-  OpenProjectWorkPackage
+  OpenProjectWorkPackage,
+  OpenProjectWorkspaceOption
 } from './protocol'
+
+const execFileAsync = promisify(execFile)
 
 const STORAGE_KEYS = {
   CURRENT_USER: 'openproject.currentUser',
@@ -461,6 +467,98 @@ async function readStoredFocusProject(orca: OrcaWorkerApi): Promise<string> {
   return 'all'
 }
 
+function inferRepoNameFromWorkspacePath(wsPath: string, fallbackName: string): string {
+  const normalized = (wsPath || '').replace(/\\/g, '/')
+  const wtMatch = /\/worktrees\/([^/]+)\//.exec(normalized)
+  if (wtMatch?.[1]) {
+    return wtMatch[1]
+  }
+  const base = path.posix.basename(normalized.replace(/\/+$/, ''))
+  return base || fallbackName
+}
+
+async function readOrcaWorkspaces(
+  orca: OrcaWorkerApi
+): Promise<OpenProjectWorkspaceOption[]> {
+  try {
+    const [listRes, ctxRes] = await Promise.all([
+      orca.host.call('workspace.list', {}),
+      orca.host.call('workspace.readContext', {}).catch(() => ({ workspace: null }))
+    ])
+    const rawList = Array.isArray(listRes?.workspaces) ? listRes.workspaces : []
+    const focusedId = ctxRes?.workspace?.id ?? ''
+    const mapped: OpenProjectWorkspaceOption[] = rawList.map((ws) => {
+      const repoName = inferRepoNameFromWorkspacePath(ws.path, ws.name)
+      return {
+        id: ws.id,
+        name: ws.name,
+        path: ws.path,
+        ...(ws.branch ? { branch: ws.branch } : {}),
+        ...(ws.kind ? { kind: ws.kind } : {}),
+        repoName,
+        isFocused: Boolean(focusedId && ws.id === focusedId)
+      }
+    })
+    return mapped.sort((a, b) => {
+      if (a.isFocused && !b.isFocused) return -1
+      if (!a.isFocused && b.isFocused) return 1
+      const aPrimary = !a.path.includes('/worktrees/')
+      const bPrimary = !b.path.includes('/worktrees/')
+      if (aPrimary && !bPrimary) return -1
+      if (!aPrimary && bPrimary) return 1
+      return (a.repoName || a.name).localeCompare(b.repoName || b.name)
+    })
+  } catch {
+    return []
+  }
+}
+
+function findOrcaCliBinary(): string | undefined {
+  const candidates: string[] = []
+  try {
+    const home = os.homedir()
+    candidates.push(
+      path.join(home, '.config', 'orca', 'linux-orca-cli-shim', 'orca'),
+      path.join(home, '.local', 'bin', 'orca'),
+      '/usr/local/bin/orca'
+    )
+    const pathEnv = (typeof process !== 'undefined' && process.env?.PATH) || ''
+    for (const seg of pathEnv.split(path.delimiter)) {
+      if (seg.trim()) {
+        candidates.push(path.join(seg.trim(), 'orca'))
+      }
+    }
+  } catch {
+    // Ignore path discovery errors
+  }
+  for (const binPath of candidates) {
+    try {
+      if (fs.existsSync(binPath) && fs.statSync(binPath).isFile()) {
+        return binPath
+      }
+    } catch {
+      // Ignore unreadable candidates
+    }
+  }
+  return undefined
+}
+
+async function runOrcaCliJson(
+  orcaBin: string,
+  args: string[]
+): Promise<Record<string, any> | null> {
+  try {
+    const { stdout } = await execFileAsync(orcaBin, [...args, '--json'], {
+      timeout: 15000,
+      maxBuffer: 4 * 1024 * 1024
+    })
+    const parsed = JSON.parse(stdout.trim())
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnapshot> {
   const creds = await resolveCredentials(orca)
   const [
@@ -476,7 +574,8 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
     lastSyncedRaw,
     lastErrRaw,
     pageSize,
-    focusProject
+    focusProject,
+    workspaces
   ] = await Promise.all([
     orca.storage.get(STORAGE_KEYS.CURRENT_USER),
     readStoredProjects(orca),
@@ -490,7 +589,8 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
     orca.storage.get(STORAGE_KEYS.LAST_SYNCED_AT),
     orca.storage.get(STORAGE_KEYS.LAST_ERROR),
     readStoredPageSize(orca),
-    readStoredFocusProject(orca)
+    readStoredFocusProject(orca),
+    readOrcaWorkspaces(orca)
   ])
 
   const filteredProjects = projects
@@ -555,6 +655,7 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
     selectedTicket,
     activities,
     detectedAgents: detectLocalAgentClis(),
+    workspaces,
     lastSyncedAt:
       typeof lastSyncedRaw === 'number' ? lastSyncedRaw : liveCache.lastSyncedAt,
     lastError: typeof lastErrRaw === 'string' ? lastErrRaw : liveCache.lastError
@@ -1194,9 +1295,55 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('openproject.workPackages.get', async ({ id }) => {
     const creds = await resolveCredentials(orca)
-    const workPackages = await readStoredWorkPackages(orca)
+    let workPackages = await readStoredWorkPackages(orca)
     const activitiesMap = await readStoredActivitiesMap(orca)
-    const idx = workPackages.findIndex((wp) => wp.id === id)
+    const hasRemoteApi =
+      Boolean(creds.baseUrl) &&
+      Boolean(creds.apiToken) &&
+      creds.baseUrl !== 'https://openproject.example.com' &&
+      typeof fetch === 'function'
+
+    let idx = workPackages.findIndex((wp) => wp.id === id)
+    if (idx === -1 && hasRemoteApi) {
+      try {
+        const [projects, statuses, priorities, types, remoteWp] = await Promise.all([
+          readStoredProjects(orca),
+          readStoredStatuses(orca),
+          readStoredPriorities(orca),
+          readStoredTypes(orca),
+          fetchOpenProjectJson(creds, `/api/v3/work_packages/${id}`)
+        ])
+        if (isHalWorkPackageProjectValid(remoteWp)) {
+          const projectIdToIdentifier = new Map<number, string>(
+            projects.map((p) => [p.id, p.identifier])
+          )
+          const statusColorById = new Map<number, string>(
+            statuses.filter((s) => s.color).map((s) => [s.id, s.color!])
+          )
+          const priorityColorById = new Map<number, string>(
+            priorities.filter((p) => p.color).map((p) => [p.id, p.color!])
+          )
+          const typeColorById = new Map<number, string>(
+            types.filter((t) => t.color).map((t) => [t.id, t.color!])
+          )
+          const mapped = mapHalWorkPackage(
+            remoteWp,
+            projectIdToIdentifier,
+            statusColorById,
+            priorityColorById,
+            typeColorById
+          )
+          if (mapped.id === id) {
+            workPackages = [mapped, ...workPackages]
+            liveCache.workPackages = workPackages
+            idx = 0
+          }
+        }
+      } catch {
+        // Handled by idx === -1 check below
+      }
+    }
+
     if (idx === -1) {
       throw new Error(`Work package #${id} not found in accessible projects.`)
     }
@@ -1208,24 +1355,105 @@ export default function activate(orca: OrcaWorkerApi): void {
       throw new Error(`Project '${existing.projectIdentifier}' is not in readProjects allowlist.`)
     }
 
-    if (
-      existing.description.endsWith('…') &&
-      creds.baseUrl &&
-      creds.apiToken &&
-      creds.baseUrl !== 'https://openproject.example.com' &&
-      typeof fetch === 'function'
-    ) {
-      try {
-        const remoteWp = await fetchOpenProjectJson(creds, `/api/v3/work_packages/${id}`)
-        const fullDesc = String(remoteWp?.description?.raw ?? '').trim()
-        if (fullDesc) {
-          existing = { ...existing, description: fullDesc.slice(0, 8000) }
+    if (hasRemoteApi) {
+      const missingChildIds = (existing.childIds ?? []).filter(
+        (cid) => !workPackages.some((w) => w.id === cid)
+      )
+      const needsFullDescription = existing.description.endsWith('…')
+      const needsParentWp =
+        Boolean(existing.parentId && existing.parentId > 0) &&
+        !workPackages.some((w) => w.id === existing.parentId)
+
+      if (needsFullDescription || missingChildIds.length > 0 || needsParentWp) {
+        try {
+          const [projects, statuses, priorities, types] = await Promise.all([
+            readStoredProjects(orca),
+            readStoredStatuses(orca),
+            readStoredPriorities(orca),
+            readStoredTypes(orca)
+          ])
+          const projectIdToIdentifier = new Map<number, string>(
+            projects.map((p) => [p.id, p.identifier])
+          )
+          const statusColorById = new Map<number, string>(
+            statuses.filter((s) => s.color).map((s) => [s.id, s.color!])
+          )
+          const priorityColorById = new Map<number, string>(
+            priorities.filter((p) => p.color).map((p) => [p.id, p.color!])
+          )
+          const typeColorById = new Map<number, string>(
+            types.filter((t) => t.color).map((t) => [t.id, t.color!])
+          )
+
           const nextWps = [...workPackages]
-          nextWps[idx] = existing
+          const seenIds = new Set<number>(nextWps.map((w) => w.id))
+
+          if (needsFullDescription) {
+            const remoteWp = await fetchOpenProjectJson(creds, `/api/v3/work_packages/${id}`)
+            const fullDesc = String(remoteWp?.description?.raw ?? '').trim()
+            if (fullDesc) {
+              existing = { ...existing, description: fullDesc.slice(0, 8000) }
+              nextWps[idx] = existing
+            }
+          }
+
+          if (missingChildIds.length > 0) {
+            const parentFilter = encodeURIComponent(
+              JSON.stringify([{ parent: { operator: '=', values: [String(id)] } }])
+            )
+            const childrenRes = await fetchOpenProjectJson(
+              creds,
+              `/api/v3/work_packages?pageSize=100&filters=${parentFilter}`
+            ).catch(() => ({}))
+            const rawChildren: Record<string, any>[] = Array.isArray(
+              childrenRes._embedded?.elements
+            )
+              ? childrenRes._embedded.elements
+              : []
+            for (const rawChild of rawChildren) {
+              if (!isHalWorkPackageProjectValid(rawChild)) continue
+              const mappedChild = mapHalWorkPackage(
+                rawChild,
+                projectIdToIdentifier,
+                statusColorById,
+                priorityColorById,
+                typeColorById
+              )
+              if (mappedChild.id && !seenIds.has(mappedChild.id)) {
+                seenIds.add(mappedChild.id)
+                nextWps.push(mappedChild)
+              }
+            }
+          }
+
+          if (needsParentWp && existing.parentId) {
+            const remoteParent = await fetchOpenProjectJson(
+              creds,
+              `/api/v3/work_packages/${existing.parentId}`
+            ).catch(() => null)
+            if (remoteParent && isHalWorkPackageProjectValid(remoteParent)) {
+              const mappedParent = mapHalWorkPackage(
+                remoteParent,
+                projectIdToIdentifier,
+                statusColorById,
+                priorityColorById,
+                typeColorById
+              )
+              if (mappedParent.id && !seenIds.has(mappedParent.id)) {
+                seenIds.add(mappedParent.id)
+                nextWps.push(mappedParent)
+              }
+              if (!existing.parentSubject && mappedParent.subject) {
+                existing = { ...existing, parentSubject: mappedParent.subject }
+                nextWps[idx] = existing
+              }
+            }
+          }
+
           liveCache.workPackages = nextWps
+        } catch {
+          // Keep cached state if supplemental remote fetch fails
         }
-      } catch {
-        // Keep cached description if remote detail fetch fails
       }
     }
 
@@ -1637,32 +1865,149 @@ export default function activate(orca: OrcaWorkerApi): void {
       throw new Error(`Project '${ticket.projectIdentifier}' is not in readProjects allowlist.`)
     }
 
-    let workspaceId = input.workspaceId?.trim() || ''
-    if (!workspaceId) {
-      const listRes = await orca.host.call('workspace.list', {})
-      workspaceId = listRes.workspaces[0]?.id ?? 'default-workspace'
-    }
+    const workspaces = await readOrcaWorkspaces(orca)
+    const requestedWsId = input.workspaceId?.trim() || ''
+    const matchedWs = requestedWsId
+      ? workspaces.find((w) => w.id === requestedWsId)
+      : matchBestWorkspaceForTicket(ticket, workspaces)
 
+    let workspaceId = matchedWs?.id || requestedWsId || workspaces[0]?.id || 'default-workspace'
+    let workspaceName = matchedWs?.repoName || matchedWs?.name || workspaceId
     const agent = input.agent?.trim() || creds.defaultAgent || 'codex'
     const branchSlug = formatWorktreeBranchSlug(ticket.id, ticket.subject)
-    const prompt = buildAgentTicketPrompt(ticket, branchSlug)
+    const parentTicket = ticket.parentId
+      ? workPackages.find((w) => w.id === ticket.parentId) ?? null
+      : null
+    const subtasks = workPackages
+      .filter((w) => w.parentId === ticket.id)
+      .sort((a, b) => a.id - b.id)
+    const prompt = buildAgentTicketPrompt(ticket, branchSlug, parentTicket, subtasks)
+    const ticketUrl =
+      creds.baseUrl && creds.baseUrl !== 'https://openproject.example.com'
+        ? `${creds.baseUrl}/work_packages/${ticket.id}`
+        : ''
 
-    const launchRes = await orca.host.call('agent.launch', {
-      workspaceId,
-      agent,
-      prompt
-    })
+    let terminalId = ''
+    let createdWorktree = false
+    let focused = false
+
+    const orcaBin =
+      creds.baseUrl && creds.baseUrl !== 'https://openproject.example.com'
+        ? findOrcaCliBinary()
+        : undefined
+
+    if (orcaBin && workspaceId !== 'default-workspace') {
+      const wsHay = `${matchedWs?.name ?? ''} ${matchedWs?.branch ?? ''} ${matchedWs?.path ?? ''}`.toLowerCase()
+      const alreadyOnTicketWorktree =
+        wsHay.includes(`op-${ticket.id}-`) ||
+        wsHay.includes(`task/${ticket.id}-`) ||
+        wsHay.includes(`/${ticket.id}-`)
+      const shouldCreateWorktree =
+        input.createWorktree !== false && !alreadyOnTicketWorktree
+
+      if (shouldCreateWorktree) {
+        const repoIdPrefix = workspaceId.includes('::')
+          ? workspaceId.split('::')[0]
+          : ''
+        const repoHandle = repoIdPrefix
+          ? `id:${repoIdPrefix}`
+          : matchedWs?.repoName || matchedWs?.name || workspaceId
+        const createArgs = [
+          'worktree',
+          'create',
+          '--name',
+          branchSlug,
+          '--branch',
+          branchSlug,
+          '--repo',
+          repoHandle,
+          '--activate'
+        ]
+        if (ticketUrl) {
+          createArgs.push('--reference', ticketUrl)
+        }
+        const createRes = await runOrcaCliJson(orcaBin, createArgs)
+        const createdWt = createRes?.result?.worktree ?? createRes?.worktree
+        if (createRes?.ok && createdWt?.id) {
+          workspaceId = String(createdWt.id)
+          workspaceName = String(
+            createdWt.displayName || createdWt.name || branchSlug
+          )
+          createdWorktree = true
+          focused = true
+        } else {
+          // Check if a worktree with branchSlug already exists in workspaces
+          const existingBranchWs = workspaces.find(
+            (w) =>
+              w.name.toLowerCase() === branchSlug.toLowerCase() ||
+              (w.branch ?? '').toLowerCase().endsWith(branchSlug.toLowerCase())
+          )
+          if (existingBranchWs) {
+            workspaceId = existingBranchWs.id
+            workspaceName = existingBranchWs.name
+          }
+        }
+      }
+
+      if (ticketUrl && !createdWorktree) {
+        await runOrcaCliJson(orcaBin, [
+          'reference',
+          'add',
+          ticketUrl,
+          '--worktree',
+          `id:${workspaceId}`
+        ])
+      }
+
+      const cliLaunchRes = await runOrcaCliJson(orcaBin, [
+        'agent',
+        'launch',
+        '--agent',
+        agent,
+        '--worktree',
+        `id:${workspaceId}`,
+        '--prompt',
+        prompt,
+        '--focus'
+      ])
+      const cliTermId =
+        cliLaunchRes?.result?.terminal?.id ??
+        cliLaunchRes?.result?.terminalId ??
+        cliLaunchRes?.terminalId
+      if (cliLaunchRes?.ok && cliTermId) {
+        terminalId = String(cliTermId)
+        focused = true
+        await runOrcaCliJson(orcaBin, [
+          'terminal',
+          'switch',
+          '--terminal',
+          terminalId
+        ])
+      }
+    }
+
+    if (!terminalId) {
+      const launchRes = await orca.host.call('agent.launch', {
+        workspaceId,
+        agent,
+        prompt
+      })
+      terminalId = launchRes.terminalId
+    }
 
     await orca.host.call('notifications.show', {
       title: `Started ${agent} on #${ticket.id}`,
-      body: `${ticket.subject} (${branchSlug})`
+      body: `${ticket.subject} (${workspaceName} · ${branchSlug})`
     })
 
     return {
-      terminalId: launchRes.terminalId,
+      terminalId,
       workspaceId,
+      workspaceName,
       branchSlug,
-      agent
+      agent,
+      createdWorktree,
+      focused
     }
   })
 

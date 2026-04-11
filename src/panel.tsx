@@ -28,6 +28,7 @@ import {
   activeTabAtom,
   collapsedParentIdsAtom,
   feedbackMessageAtom,
+  focusAnchorTicketIdAtom,
   localeAtom,
   pageSizeAtom,
   priorityFilterAtom,
@@ -106,9 +107,11 @@ export default function Panel() {
         ]
   const principals = snapshot?.principals ?? []
   const detectedAgents = snapshot?.detectedAgents ?? []
+  const workspaces = snapshot?.workspaces ?? []
   const selectedTicket = snapshot?.selectedTicket ?? null
   const activities = snapshot?.activities ?? []
   const ticketDetailExpanded = read(ticketDetailExpandedAtom)
+  const focusAnchorId = read(focusAnchorTicketIdAtom)
 
   const currentUserName = (snapshot?.currentUser || '').toLowerCase().trim()
   const closedStatusMap = new Map<string, boolean>()
@@ -352,7 +355,8 @@ export default function Panel() {
               canCreateSubtask: canWriteTicketProject,
               activities,
               statusTransitionOptions,
-              memberOptions
+              memberOptions,
+              workspaces
             })}
           </Box>
         ) : null}
@@ -371,6 +375,34 @@ export default function Panel() {
   const effectiveTotalCount = isFilteringClosed
     ? closedProjectScopedWorkPackages.length
     : openProjectScopedWorkPackages.length
+
+  const pageSlice = filteredTickets.slice(0, Number(pageSize) || 100)
+  const displayedTickets = (() => {
+    if (!selectedTicket || !ticketDetailExpanded) {
+      return pageSlice
+    }
+    if (focusAnchorId && focusAnchorId !== selectedTicket.id) {
+      const anchorIdx = pageSlice.findIndex((w) => w.id === focusAnchorId)
+      if (anchorIdx !== -1) {
+        const withoutSelected = pageSlice.filter(
+          (w) => w.id !== selectedTicket.id
+        )
+        const nextAnchorIdx = withoutSelected.findIndex(
+          (w) => w.id === focusAnchorId
+        )
+        const insertIdx = nextAnchorIdx !== -1 ? nextAnchorIdx : anchorIdx
+        return [
+          ...withoutSelected.slice(0, insertIdx),
+          selectedTicket,
+          ...withoutSelected.slice(insertIdx)
+        ]
+      }
+    }
+    if (!pageSlice.some((w) => w.id === selectedTicket.id)) {
+      return [selectedTicket, ...pageSlice]
+    }
+    return pageSlice
+  })()
 
   return (
     <Stack gap="sm">
@@ -439,9 +471,7 @@ export default function Panel() {
               />
             ) : (
               <Stack gap="xs">
-                {filteredTickets
-                  .slice(0, Number(pageSize) || 100)
-                  .map((wp) => renderWorkPackageCard(wp))}
+                {displayedTickets.map((wp) => renderWorkPackageCard(wp))}
                 <Box height={180} />
               </Stack>
             )}

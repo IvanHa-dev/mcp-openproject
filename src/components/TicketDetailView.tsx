@@ -17,10 +17,14 @@ import {
   Text
 } from 'orca'
 import { createTranslator, type UiLocale } from '../i18n'
-import { formatWorktreeBranchSlug } from '../openproject-api'
+import {
+  formatWorktreeBranchSlug,
+  matchBestWorkspaceForTicket
+} from '../openproject-api'
 import type {
   OpenProjectActivity,
-  OpenProjectWorkPackage
+  OpenProjectWorkPackage,
+  OpenProjectWorkspaceOption
 } from '../protocol'
 import {
   commentDraftAtom,
@@ -32,6 +36,7 @@ import {
   nextStatusDraftAtom,
   selectTicket,
   startCreatingSubtask,
+  targetWorkspaceIdAtom,
   ticketDetailExpandedAtom
 } from '../state/panel-state'
 import {
@@ -50,6 +55,7 @@ export interface TicketDetailViewProps {
   activities: OpenProjectActivity[]
   statusTransitionOptions: Array<{ value: string; label: string; color?: string }>
   memberOptions: Array<{ value: string; label: string }>
+  workspaces?: OpenProjectWorkspaceOption[]
 }
 
 export function TicketDetailView({
@@ -59,7 +65,8 @@ export function TicketDetailView({
   canCreateSubtask,
   activities,
   statusTransitionOptions,
-  memberOptions
+  memberOptions,
+  workspaces = []
 }: TicketDetailViewProps) {
   const tr = createTranslator(locale)
   const assigneeDraft = read(nextAssigneeDraftAtom) || '0'
@@ -89,6 +96,28 @@ export function TicketDetailView({
   const typeStyle = getTypeToneStyle(ticket.type, ticket.typeColor)
   const prioStyle = getPriorityToneStyle(ticket.priority, ticket.priorityColor)
 
+  const bestMatchedWs = matchBestWorkspaceForTicket(ticket, workspaces)
+  const selectedWsId =
+    read(targetWorkspaceIdAtom) || bestMatchedWs?.id || workspaces[0]?.id || ''
+  const selectedWsObj =
+    workspaces.find((w) => w.id === selectedWsId) ?? bestMatchedWs
+  const selectedWsLabel =
+    selectedWsObj?.repoName || selectedWsObj?.name || 'default'
+
+  const workspaceOptions = workspaces.map((ws) => {
+    const repo = ws.repoName || ws.name
+    const isMainRepo = !ws.path.includes('/worktrees/')
+    const suffix = isMainRepo
+      ? ws.branch
+        ? ` (${ws.branch.replace(/^refs\/heads\//, '')})`
+        : ''
+      : ` · ${ws.name}`
+    return {
+      value: ws.id,
+      label: `${repo}${suffix}`
+    }
+  })
+
   const parentWp = ticket.parentId
     ? allWorkPackages.find((w) => w.id === ticket.parentId)
     : undefined
@@ -107,7 +136,10 @@ export function TicketDetailView({
           <Button
             size="xs"
             tone="accent"
-            tooltip={tr('ticket.launchAgentTooltip', { branch: branchSlug })}
+            tooltip={tr('ticket.launchAgentTooltip', {
+              branch: branchSlug,
+              workspace: selectedWsLabel
+            })}
             onPress={() => launchAgentForSelectedTicket(ticket.id)}
           >
             {tr('ticket.launchAgent')}
@@ -143,6 +175,15 @@ export function TicketDetailView({
         />
       </Row>
 
+      {workspaceOptions.length > 0 ? (
+        <Select
+          label={tr('ticket.targetWorkspaceLabel')}
+          value={selectedWsId}
+          options={workspaceOptions}
+          onChange={(val) => set(targetWorkspaceIdAtom, val)}
+        />
+      ) : null}
+
       {/* Row 2: Parent Jump + Add Subtask + Bordered Updated Date */}
       {ticket.parentId || canCreateSubtask || ticket.updatedAt ? (
         <Row justify="between" align="center" gap="xs" wrap>
@@ -156,7 +197,7 @@ export function TicketDetailView({
                     ? `#${ticket.parentId} ${fullParentSubject}`
                     : tr('ticket.parentTooltip', { id: ticket.parentId })
                 }
-                onPress={() => selectTicket(ticket.parentId!)}
+                onPress={() => selectTicket(ticket.parentId!, ticket.id)}
               >
                 {tr('ticket.parentButton', {
                   id: ticket.parentId
@@ -214,7 +255,7 @@ export function TicketDetailView({
                       key={String(child.id)}
                       title={`↳ #${child.id} ${child.subject}`}
                       description={formatWorkPackageRowMeta(child, locale)}
-                      onPress={() => selectTicket(child.id)}
+                      onPress={() => selectTicket(child.id, ticket.id)}
                     />
                   </List>
                 </Box>

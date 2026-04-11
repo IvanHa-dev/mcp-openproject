@@ -1,5 +1,6 @@
 import { atom, plugin, read, set } from 'orca'
 import { t, type UiLocale } from '../i18n'
+import { matchBestWorkspaceForTicket } from '../openproject-api'
 import type { OpenProjectStateSnapshot } from '../protocol'
 import {
   isStatusClosedName,
@@ -41,6 +42,8 @@ export const searchQueryAtom = atom<string>('openproject.searchQuery', '', {
 })
 export const ticketDetailExpandedAtom = atom<boolean>(true)
 export const descriptionOpenAtom = atom<boolean>(true)
+export const focusAnchorTicketIdAtom = atom<number | null>(null)
+export const targetWorkspaceIdAtom = atom<string>('')
 
 export const nextStatusDraftAtom = atom<string>('')
 export const nextAssigneeDraftAtom = atom<string>('0')
@@ -113,7 +116,12 @@ export function syncDraftsFromSnapshot(
     const prevSyncedId = read(lastSyncedTicketIdAtom)
     if (forceTicketDraftSync || prevSyncedId !== snapshot.selectedTicket.id) {
       const principals = snapshot.principals ?? []
+      const bestWs = matchBestWorkspaceForTicket(
+        snapshot.selectedTicket,
+        snapshot.workspaces ?? []
+      )
       set(lastSyncedTicketIdAtom, snapshot.selectedTicket.id)
+      set(targetWorkspaceIdAtom, bestWs?.id ?? '')
       set(nextStatusDraftAtom, snapshot.selectedTicket.status)
       set(
         nextAssigneeDraftAtom,
@@ -244,13 +252,26 @@ export async function changePageSize(nextSizeStr: string): Promise<void> {
   }
 }
 
-export async function selectTicket(id: number): Promise<void> {
+export async function selectTicket(
+  id: number,
+  fromAnchorId?: number
+): Promise<void> {
   try {
     const currentSnapshot = read(stateAtom)
-    if (currentSnapshot?.selectedTicket?.id === id) {
+    if (
+      fromAnchorId === undefined &&
+      currentSnapshot?.selectedTicket?.id === id
+    ) {
       const nextExpanded = !read(ticketDetailExpandedAtom)
       set(ticketDetailExpandedAtom, nextExpanded)
       return
+    }
+
+    if (fromAnchorId !== undefined) {
+      const existingAnchor = read(focusAnchorTicketIdAtom)
+      set(focusAnchorTicketIdAtom, existingAnchor ?? fromAnchorId)
+    } else {
+      set(focusAnchorTicketIdAtom, id)
     }
 
     set(ticketDetailExpandedAtom, true)
@@ -258,7 +279,12 @@ export async function selectTicket(id: number): Promise<void> {
     const cachedWp = currentSnapshot?.workPackages.find((wp) => wp.id === id)
     if (currentSnapshot && cachedWp) {
       const principals = currentSnapshot.principals ?? []
+      const bestWs = matchBestWorkspaceForTicket(
+        cachedWp,
+        currentSnapshot.workspaces ?? []
+      )
       set(lastSyncedTicketIdAtom, id)
+      set(targetWorkspaceIdAtom, bestWs?.id ?? '')
       set(stateAtom, {
         ...currentSnapshot,
         selectedTicket: cachedWp,
@@ -430,14 +456,18 @@ export async function launchAgentForSelectedTicket(
 ): Promise<void> {
   const locale = read(localeAtom)
   try {
+    const selectedWsId = read(targetWorkspaceIdAtom).trim()
     const res = await plugin.request('openproject.agent.launch', {
       ticketId,
-      agent: read(configAgentDraftAtom)
+      agent: read(configAgentDraftAtom),
+      ...(selectedWsId ? { workspaceId: selectedWsId } : {}),
+      createWorktree: true
     })
     set(feedbackMessageAtom, {
       tone: 'accent',
       text: t(locale, 'feedback.launchedAgent', {
         agent: res.agent,
+        workspace: res.workspaceName || res.workspaceId,
         branch: res.branchSlug,
         terminalId: res.terminalId
       })

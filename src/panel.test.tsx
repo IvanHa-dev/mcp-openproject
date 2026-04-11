@@ -303,3 +303,106 @@ test('supports 50/100/200 per-page selector and checks OpenProject permission fo
   assert.deepEqual(view.refusals, [])
   await view.unmount()
 })
+
+test('auto-focuses child tasks and parent tasks in-place and pre-selects best target workspace', async () => {
+  const snapshot = createInitialSnapshot()
+  snapshot.projects.push({
+    id: 2,
+    identifier: 'acme-frontend',
+    name: 'Acme Frontend',
+    description: 'Frontend web client'
+  })
+  snapshot.workspaces = [
+    {
+      id: 'ws-mobile',
+      name: 'dev',
+      path: '/home/dev/orca/acme-mobile',
+      repoName: 'acme-mobile'
+    },
+    {
+      id: 'ws-frontend',
+      name: 'ui-refresh',
+      path: '/home/dev/orca/acme-frontend',
+      repoName: 'acme-frontend',
+      branch: 'ui-refresh'
+    }
+  ]
+
+  const parentTask = {
+    id: 123,
+    subject: 'Phase 2 dashboard redesign',
+    description: 'Parent epic description',
+    status: 'New',
+    statusId: 1,
+    type: 'Epic',
+    priority: 'Normal',
+    project: 'Acme Frontend',
+    projectIdentifier: 'acme-frontend',
+    assignee: 'Unassigned',
+    childIds: [124],
+    updatedAt: '2026-11-04T10:00:00Z',
+    lockVersion: 1
+  }
+  const childTask = {
+    id: 124,
+    subject: 'Implement responsive sidebar layout',
+    description: 'Child task description',
+    status: 'In Progress',
+    statusId: 7,
+    type: 'Task',
+    priority: 'Normal',
+    project: 'Acme Frontend',
+    projectIdentifier: 'acme-frontend',
+    parentId: 123,
+    parentSubject: 'Phase 2 dashboard redesign',
+    assignee: 'Alex Dev',
+    updatedAt: '2026-11-04T10:05:00Z',
+    lockVersion: 1
+  }
+  snapshot.workPackages = [parentTask, snapshot.workPackages[0], childTask]
+  snapshot.selectedTicket = parentTask
+
+  let launchedWsId = ''
+  const host = mockHost({
+    requests: {
+      'openproject.state.get': () => snapshot,
+      'openproject.workPackages.get': ({ id }) => {
+        const found = snapshot.workPackages.find((wp) => wp.id === id) ?? parentTask
+        snapshot.selectedTicket = found
+        return { workPackage: found, activities: [] }
+      },
+      'openproject.agent.launch': ({ ticketId, workspaceId }) => {
+        launchedWsId = workspaceId ?? ''
+        return {
+          terminalId: `term-${ticketId}`,
+          workspaceId: launchedWsId,
+          workspaceName: 'acme-frontend',
+          branchSlug: `op-${ticketId}-task`,
+          agent: 'codex'
+        }
+      }
+    }
+  })
+
+  const view = await mount(panel, { host })
+
+  // Parent #123 is expanded and shows subtask ↳ #124
+  assert.ok(view.find({ text: /↳ #124 Implement responsive sidebar layout/ }))
+
+  // Clicking subtask ↳ #124 auto-focuses #124 in-place and shows ↑ Parent: #123
+  await view.press({ text: /↳ #124 Implement responsive sidebar layout/ })
+  assert.ok(view.find({ text: '↑ Parent: #123' }))
+  assert.ok(view.find({ text: /Child task description/ }))
+
+  // Launching agent on child task #124 automatically uses matched acme-frontend workspace instead of ws-mobile
+  await view.press({ text: 'Launch Agent' })
+  assert.equal(launchedWsId, 'ws-frontend')
+
+  // Clicking ↑ Parent: #123 auto-focuses parent #123 back in-place
+  await view.press({ text: '↑ Parent: #123' })
+  assert.ok(view.find({ text: /↳ #124 Implement responsive sidebar layout/ }))
+
+  assert.deepEqual(view.errors, [])
+  assert.deepEqual(view.refusals, [])
+  await view.unmount()
+})

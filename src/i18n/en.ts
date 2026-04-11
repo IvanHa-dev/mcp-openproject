@@ -13,7 +13,7 @@ export const EN_LOCALE: Record<string, string> = {
     'Synced {{taskCount}} tasks across {{projectCount}} projects.',
   'feedback.savedConfig': 'Saved OpenProject settings.',
   'feedback.launchedAgent':
-    'Launched {{agent}} ({{branch}}) in terminal {{terminalId}}',
+    'Launched {{agent}} in {{workspace}} ({{branch}}) · terminal {{terminalId}}',
   'tabs.tickets': 'Tickets',
   'tabs.newTask': 'New Task',
   'tabs.setup': 'Setup',
@@ -40,7 +40,9 @@ export const EN_LOCALE: Record<string, string> = {
   'tickets.emptyDesc':
     'Click Sync to load tasks from OpenProject or adjust your project/status filters.',
   'ticket.launchAgent': 'Launch Agent',
-  'ticket.launchAgentTooltip': 'Start coding agent on branch {{branch}}',
+  'ticket.launchAgentTooltip':
+    'Create/activate worktree {{branch}} in {{workspace}} and start coding agent',
+  'ticket.targetWorkspaceLabel': 'Target Repo / Worktree',
   'ticket.priorityBadge': '{{priority}}',
   'ticket.close': 'Close',
   'ticket.closeTooltip': 'Close details (or click task row again)',

@@ -13,7 +13,7 @@ export const VI_LOCALE: Record<string, string> = {
     'Đã đồng bộ {{taskCount}} công việc trên {{projectCount}} dự án.',
   'feedback.savedConfig': 'Đã lưu cấu hình OpenProject.',
   'feedback.launchedAgent':
-    'Đã khởi chạy {{agent}} ({{branch}}) tại terminal {{terminalId}}',
+    'Đã mở {{agent}} tại {{workspace}} ({{branch}}) · terminal {{terminalId}}',
   'tabs.tickets': 'Công việc',
   'tabs.newTask': 'Tạo việc',
   'tabs.setup': 'Cấu hình',
@@ -40,7 +40,9 @@ export const VI_LOCALE: Record<string, string> = {
   'tickets.emptyDesc':
     'Bấm Đồng bộ để tải dữ liệu từ OpenProject hoặc điều chỉnh bộ lọc dự án / trạng thái / độ ưu tiên.',
   'ticket.launchAgent': 'Chạy Agent',
-  'ticket.launchAgentTooltip': 'Khởi chạy coding agent trên nhánh {{branch}}',
+  'ticket.launchAgentTooltip':
+    'Tạo/mở worktree {{branch}} tại {{workspace}} và khởi chạy coding agent',
+  'ticket.targetWorkspaceLabel': 'Repo / Worktree đích',
   'ticket.priorityBadge': '{{priority}}',
   'ticket.close': 'Thu gọn',
   'ticket.closeTooltip': 'Đóng chi tiết (hoặc bấm lại vào dòng công việc)',

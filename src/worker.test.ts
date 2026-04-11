@@ -67,6 +67,14 @@ test('enforces read/write allowlists, 2-step preview-then-confirm, and agent lau
       'workspace.list': {
         workspaces: [
           {
+            id: 'ws-unrelated-first',
+            kind: 'worktree',
+            name: 'dev',
+            path: '/home/dev/orca/demo-mobile-app',
+            branch: 'dev',
+            hostId: null
+          },
+          {
             id: 'ws-acme-backend',
             kind: 'worktree',
             name: 'acme-backend',
@@ -121,9 +129,10 @@ test('enforces read/write allowlists, 2-step preview-then-confirm, and agent lau
   assert.equal(detail.activities.length, 1)
   assert.equal(detail.activities[0].comment, 'Starting work in Orca')
 
-  // 4. Launch agent on ticket #1428
+  // 4. Launch agent on ticket #1428 (verify smart workspace matching picks ws-acme-backend instead of workspaces[0])
   const launched = await worker.request('openproject.agent.launch', { ticketId: 1428 })
   assert.equal(launched.terminalId, 'term-99')
+  assert.equal(launched.workspaceId, 'ws-acme-backend')
   assert.equal(launched.branchSlug, 'op-1428-fix-token-refresh')
   assert.equal(worker.host.callsOf('agent.launch').length, 1)
 

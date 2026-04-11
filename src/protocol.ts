@@ -76,6 +76,16 @@ export interface DetectedAgentCli {
   mcpSnippet?: string
 }
 
+export interface OpenProjectWorkspaceOption {
+  id: string
+  name: string
+  path: string
+  branch: string | null
+  kind: 'worktree' | 'folder'
+  repoName?: string
+  isFocused?: boolean
+}
+
 export interface OpenProjectConfigSummary {
   baseUrl: string
   hasToken: boolean
@@ -101,6 +111,7 @@ export interface OpenProjectStateSnapshot {
   selectedTicket: OpenProjectWorkPackage | null
   activities: OpenProjectActivity[]
   detectedAgents?: DetectedAgentCli[]
+  workspaces?: OpenProjectWorkspaceOption[]
   lastSyncedAt: number | null
   lastError: string | null
 }
@@ -118,13 +129,17 @@ export interface LaunchAgentInput {
   ticketId: number
   agent?: string
   workspaceId?: string
+  createWorktree?: boolean
 }
 
 export interface LaunchAgentOutput {
   terminalId: string
   workspaceId: string
+  workspaceName?: string
   branchSlug: string
   agent: string
+  createdWorktree?: boolean
+  focused?: boolean
 }
 
 declare module 'orca' {
