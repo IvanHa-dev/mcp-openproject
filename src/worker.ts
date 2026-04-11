@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { promisify } from 'node:util'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   buildAgentTicketPrompt,
@@ -34,8 +32,6 @@ import type {
   OpenProjectWorkPackage,
   OpenProjectWorkspaceOption
 } from './protocol'
-
-const execFileAsync = promisify(execFile)
 
 const STORAGE_KEYS = {
   CURRENT_USER: 'openproject.currentUser',
@@ -469,7 +465,7 @@ async function readStoredFocusProject(orca: OrcaWorkerApi): Promise<string> {
 
 function inferRepoNameFromWorkspacePath(wsPath: string, fallbackName: string): string {
   const normalized = (wsPath || '').replace(/\\/g, '/')
-  const wtMatch = /\/worktrees\/([^/]+)\//.exec(normalized)
+  const wtMatch = normalized.match(/\/worktrees\/([^/]+)\//)
   if (wtMatch?.[1]) {
     return wtMatch[1]
   }
@@ -521,52 +517,6 @@ async function readOrcaWorkspaces(
     return deduped.slice(0, 20)
   } catch {
     return []
-  }
-}
-
-function findOrcaCliBinary(): string | undefined {
-  const candidates: string[] = []
-  try {
-    const home = os.homedir()
-    candidates.push(
-      path.join(home, '.config', 'orca', 'linux-orca-cli-shim', 'orca'),
-      path.join(home, '.local', 'bin', 'orca'),
-      '/usr/local/bin/orca'
-    )
-    const pathEnv = (typeof process !== 'undefined' && process.env?.PATH) || ''
-    for (const seg of pathEnv.split(path.delimiter)) {
-      if (seg.trim()) {
-        candidates.push(path.join(seg.trim(), 'orca'))
-      }
-    }
-  } catch {
-    // Ignore path discovery errors
-  }
-  for (const binPath of candidates) {
-    try {
-      if (fs.existsSync(binPath) && fs.statSync(binPath).isFile()) {
-        return binPath
-      }
-    } catch {
-      // Ignore unreadable candidates
-    }
-  }
-  return undefined
-}
-
-async function runOrcaCliJson(
-  orcaBin: string,
-  args: string[]
-): Promise<Record<string, any> | null> {
-  try {
-    const { stdout } = await execFileAsync(orcaBin, [...args, '--json'], {
-      timeout: 15000,
-      maxBuffer: 4 * 1024 * 1024
-    })
-    const parsed = JSON.parse(stdout.trim())
-    return parsed && typeof parsed === 'object' ? parsed : null
-  } catch {
-    return null
   }
 }
 
@@ -1928,8 +1878,9 @@ export default function activate(orca: OrcaWorkerApi): void {
       ? workspaces.find((w) => w.id === requestedWsId)
       : matchBestWorkspaceForTicket(ticket, workspaces)
 
-    let workspaceId = matchedWs?.id || requestedWsId || workspaces[0]?.id || 'default-workspace'
-    let workspaceName = matchedWs?.repoName || matchedWs?.name || workspaceId
+    const workspaceId =
+      matchedWs?.id || requestedWsId || workspaces[0]?.id || 'default-workspace'
+    const workspaceName = matchedWs?.repoName || matchedWs?.name || workspaceId
     const agent = input.agent?.trim() || creds.defaultAgent || 'codex'
     const branchSlug = formatWorktreeBranchSlug(ticket.id, ticket.subject)
     const parentTicket = ticket.parentId
@@ -1939,118 +1890,12 @@ export default function activate(orca: OrcaWorkerApi): void {
       .filter((w) => w.parentId === ticket.id)
       .sort((a, b) => a.id - b.id)
     const prompt = buildAgentTicketPrompt(ticket, branchSlug, parentTicket, subtasks)
-    const ticketUrl =
-      creds.baseUrl && creds.baseUrl !== 'https://openproject.example.com'
-        ? `${creds.baseUrl}/work_packages/${ticket.id}`
-        : ''
 
-    let terminalId = ''
-    let createdWorktree = false
-    let focused = false
-
-    const orcaBin =
-      creds.baseUrl && creds.baseUrl !== 'https://openproject.example.com'
-        ? findOrcaCliBinary()
-        : undefined
-
-    if (orcaBin && workspaceId !== 'default-workspace') {
-      const wsHay = `${matchedWs?.name ?? ''} ${matchedWs?.branch ?? ''} ${matchedWs?.path ?? ''}`.toLowerCase()
-      const alreadyOnTicketWorktree =
-        wsHay.includes(`op-${ticket.id}-`) ||
-        wsHay.includes(`task/${ticket.id}-`) ||
-        wsHay.includes(`/${ticket.id}-`)
-      const shouldCreateWorktree =
-        input.createWorktree !== false && !alreadyOnTicketWorktree
-
-      if (shouldCreateWorktree) {
-        const repoIdPrefix = workspaceId.includes('::')
-          ? workspaceId.split('::')[0]
-          : ''
-        const repoHandle = repoIdPrefix
-          ? `id:${repoIdPrefix}`
-          : matchedWs?.repoName || matchedWs?.name || workspaceId
-        const createArgs = [
-          'worktree',
-          'create',
-          '--name',
-          branchSlug,
-          '--branch',
-          branchSlug,
-          '--repo',
-          repoHandle,
-          '--activate'
-        ]
-        if (ticketUrl) {
-          createArgs.push('--reference', ticketUrl)
-        }
-        const createRes = await runOrcaCliJson(orcaBin, createArgs)
-        const createdWt = createRes?.result?.worktree ?? createRes?.worktree
-        if (createRes?.ok && createdWt?.id) {
-          workspaceId = String(createdWt.id)
-          workspaceName = String(
-            createdWt.displayName || createdWt.name || branchSlug
-          )
-          createdWorktree = true
-          focused = true
-        } else {
-          // Check if a worktree with branchSlug already exists in workspaces
-          const existingBranchWs = workspaces.find(
-            (w) =>
-              w.name.toLowerCase() === branchSlug.toLowerCase() ||
-              (w.branch ?? '').toLowerCase().endsWith(branchSlug.toLowerCase())
-          )
-          if (existingBranchWs) {
-            workspaceId = existingBranchWs.id
-            workspaceName = existingBranchWs.name
-          }
-        }
-      }
-
-      if (ticketUrl && !createdWorktree) {
-        await runOrcaCliJson(orcaBin, [
-          'reference',
-          'add',
-          ticketUrl,
-          '--worktree',
-          `id:${workspaceId}`
-        ])
-      }
-
-      const cliLaunchRes = await runOrcaCliJson(orcaBin, [
-        'agent',
-        'launch',
-        '--agent',
-        agent,
-        '--worktree',
-        `id:${workspaceId}`,
-        '--prompt',
-        prompt,
-        '--focus'
-      ])
-      const cliTermId =
-        cliLaunchRes?.result?.terminal?.id ??
-        cliLaunchRes?.result?.terminalId ??
-        cliLaunchRes?.terminalId
-      if (cliLaunchRes?.ok && cliTermId) {
-        terminalId = String(cliTermId)
-        focused = true
-        await runOrcaCliJson(orcaBin, [
-          'terminal',
-          'switch',
-          '--terminal',
-          terminalId
-        ])
-      }
-    }
-
-    if (!terminalId) {
-      const launchRes = await orca.host.call('agent.launch', {
-        workspaceId,
-        agent,
-        prompt
-      })
-      terminalId = launchRes.terminalId
-    }
+    const launchRes = await orca.host.call('agent.launch', {
+      workspaceId,
+      agent,
+      prompt
+    })
 
     await orca.host.call('notifications.show', {
       title: `Started ${agent} on #${ticket.id}`,
@@ -2058,13 +1903,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     })
 
     return {
-      terminalId,
+      terminalId: launchRes.terminalId,
       workspaceId,
       workspaceName,
       branchSlug,
-      agent,
-      createdWorktree,
-      focused
+      agent
     }
   })
 
