@@ -50,7 +50,6 @@ export function HeaderBar({
         <Button
           size="xs"
           variant="outline"
-          tooltip={tr('header.switchLangTooltip')}
           onPress={() => set(localeAtom, locale === 'vi' ? 'en' : 'vi')}
         >
           {locale.toUpperCase()}
@@ -58,16 +57,6 @@ export function HeaderBar({
         <Button
           size="xs"
           variant="outline"
-          tooltip={
-            snapshot?.config.hasToken
-              ? tr('header.syncTooltipConfigured', {
-                  filteredCount,
-                  taskCount: totalCount,
-                  projectCount,
-                  host: hostLabel
-                })
-              : tr('header.syncTooltipUnconfigured')
-          }
           onPress={refreshAll}
         >
           {tr('header.syncButton')}

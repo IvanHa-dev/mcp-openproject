@@ -65,7 +65,6 @@ export function TicketFilters({
           size="xs"
           variant={scopeMode === 'my_todos' ? 'solid' : 'outline'}
           tone={scopeMode === 'my_todos' ? 'accent' : 'neutral'}
-          tooltip={tr('filters.mineTooltip')}
           onPress={() =>
             set(scopeModeAtom, scopeMode === 'my_todos' ? 'all' : 'my_todos')
           }

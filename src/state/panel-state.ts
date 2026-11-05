@@ -392,13 +392,20 @@ export function buildUpdatePayload(
 }
 
 export async function confirmTicketUpdate(ticketId: number): Promise<void> {
+  const locale = read(localeAtom)
   try {
     const res = await plugin.request(
       'openproject.workPackages.update',
       buildUpdatePayload(ticketId, true)
     )
     set(commentDraftAtom, '')
-    set(feedbackMessageAtom, { tone: 'success', text: res.summary })
+    set(feedbackMessageAtom, {
+      tone: 'success',
+      text:
+        locale === 'vi'
+          ? t(locale, 'feedback.updatedTicket', { id: ticketId })
+          : res.summary
+    })
   } catch (err) {
     set(feedbackMessageAtom, {
       tone: 'danger',
@@ -461,7 +468,17 @@ export async function createNewTicket(): Promise<void> {
     set(launchPanelOpenAtom, false)
     const snapshot = await plugin.request('openproject.state.get')
     syncDraftsFromSnapshot(snapshot, true)
-    set(feedbackMessageAtom, { tone: 'success', text: res.summary })
+    const locale = read(localeAtom)
+    set(feedbackMessageAtom, {
+      tone: 'success',
+      text:
+        locale === 'vi' && res.workPackage
+          ? t(locale, 'feedback.createdTicket', {
+              id: res.workPackage.id,
+              subject: res.workPackage.subject
+            })
+          : res.summary
+    })
   } catch (err) {
     set(feedbackMessageAtom, {
       tone: 'danger',
@@ -544,13 +561,17 @@ export async function saveConfiguration(): Promise<void> {
 }
 
 export async function registerMcpInSelectedAgent(): Promise<void> {
+  const locale = read(localeAtom)
   try {
     const res = await plugin.request('openproject.mcp.register', {
       agent: read(configAgentDraftAtom)
     })
     set(feedbackMessageAtom, {
       tone: 'success',
-      text: res.summary
+      text:
+        locale === 'vi'
+          ? t(locale, 'feedback.registeredMcp', { configPath: res.configPath })
+          : res.summary
     })
   } catch (err) {
     set(feedbackMessageAtom, {

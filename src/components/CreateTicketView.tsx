@@ -118,7 +118,6 @@ export function CreateTicketView({
       />
       <Input
         label={tr('create.subjectLabel')}
-        placeholder={tr('create.subjectPlaceholder')}
         value={subjectDraft}
         disabled={!canCreate}
         onChange={(val) => set(newTicketSubjectAtom, val)}
@@ -201,7 +200,6 @@ export function CreateTicketView({
       />
       <Textarea
         label={tr('create.descriptionLabel')}
-        placeholder={tr('create.descriptionPlaceholder')}
         rows={4}
         value={descDraft}
         disabled={!canCreate}

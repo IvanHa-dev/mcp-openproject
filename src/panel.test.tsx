@@ -415,13 +415,13 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
   assert.equal(launchedWsId, 'ws-frontend')
   assert.equal(launchedCreateWorktree, false)
 
-  // Switching to New Worktree mode shows Target Repository, editable Worktree / Branch Name, and Create Worktree & Start CTA
+  // Switching to New Worktree mode shows Target Repository, editable Branch Name, and Create Worktree & Start CTA
   await view.press({ text: 'Launch Agent' })
   await view.press({ text: 'New Worktree' })
-  assert.ok(view.find({ text: 'Target Repository' }))
+  assert.ok(view.find({ label: 'Target Repository' }))
   assert.ok(view.find({ text: 'Create Worktree & Start' }))
   await view.type(
-    { label: 'Worktree / Branch Name' },
+    { label: 'Branch Name' },
     'op-124-responsive-sidebar',
     { replace: true }
   )

@@ -212,10 +212,6 @@ export function TicketDetailView({
             size="xs"
             tone="accent"
             variant={launchPanelOpen ? 'solid' : 'outline'}
-            tooltip={tr('ticket.launchAgentTooltip', {
-              branch: branchSlug,
-              workspace: selectedWsLabel
-            })}
             onPress={() => set(launchPanelOpenAtom, !launchPanelOpen)}
           >
             {tr('ticket.launchAgent')}
@@ -246,7 +242,6 @@ export function TicketDetailView({
           variant="outline"
           icon="collapse"
           label={tr('ticket.close')}
-          tooltip={tr('ticket.closeTooltip')}
           onPress={() => set(ticketDetailExpandedAtom, false)}
         />
       </Row>
@@ -278,42 +273,29 @@ export function TicketDetailView({
                 {tr('ticket.launchModeWorktree')}
               </Button>
             </Row>
-            <Stack gap="xs">
-              <Text size="xs" weight="medium">
-                {createWorktree
+            <Select
+              label={
+                createWorktree
                   ? tr('ticket.targetRepoLabel')
-                  : tr('ticket.targetWorkspaceLabel')}
-              </Text>
-              <Select
-                label={
-                  createWorktree
-                    ? tr('ticket.targetRepoLabel')
-                    : tr('ticket.targetWorkspaceLabel')
-                }
-                value={effectiveSelectedWsId}
-                options={activeTargetOptions}
-                onChange={(v) => set(targetWorkspaceIdAtom, v)}
-              />
-            </Stack>
+                  : tr('ticket.targetWorkspaceLabel')
+              }
+              value={effectiveSelectedWsId}
+              options={activeTargetOptions}
+              onChange={(v) => set(targetWorkspaceIdAtom, v)}
+            />
             {createWorktree ? (
               <Input
                 label={tr('ticket.worktreeBranchLabel')}
-                placeholder={branchSlug}
                 value={branchDraft}
                 onChange={(val) => set(launchBranchDraftAtom, val)}
               />
             ) : null}
-            <Stack gap="xs">
-              <Text size="xs" weight="medium">
-                {tr('ticket.launchAgentSelectLabel')}
-              </Text>
-              <Select
-                label={tr('ticket.launchAgentSelectLabel')}
-                value={selectedAgent}
-                options={agentOptions}
-                onChange={(v) => set(configAgentDraftAtom, v)}
-              />
-            </Stack>
+            <Select
+              label={tr('ticket.launchAgentSelectLabel')}
+              value={selectedAgent}
+              options={agentOptions}
+              onChange={(v) => set(configAgentDraftAtom, v)}
+            />
             <Row gap="xs" align="center">
               <Button
                 size="xs"
@@ -352,7 +334,7 @@ export function TicketDetailView({
                 tooltip={
                   fullParentSubject
                     ? `#${ticket.parentId} ${fullParentSubject}`
-                    : tr('ticket.parentTooltip', { id: ticket.parentId })
+                    : undefined
                 }
                 onPress={() => selectTicket(ticket.parentId!, ticket.id)}
               >
@@ -365,7 +347,6 @@ export function TicketDetailView({
               <Button
                 size="xs"
                 variant="outline"
-                tooltip={tr('ticket.addSubtaskTooltip', { id: ticket.id })}
                 onPress={() =>
                   startCreatingSubtask(ticket.projectIdentifier, ticket.id)
                 }
@@ -515,7 +496,6 @@ export function TicketDetailView({
         />
         <Input
           label={tr('ticket.comment')}
-          placeholder={tr('ticket.commentPlaceholder')}
           value={read(commentDraftAtom)}
           onChange={(val) => {
             set(commentDraftAtom, val)

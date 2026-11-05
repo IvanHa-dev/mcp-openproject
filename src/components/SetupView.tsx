@@ -87,10 +87,8 @@ export function SetupView({
         type="password"
         placeholder={
           snapshot?.config.hasToken
-            ? tr('setup.apiTokenSavedPlaceholder', {
-                source: snapshot.config.tokenSource
-              })
-            : tr('setup.apiTokenEmptyPlaceholder')
+            ? tr('setup.apiTokenSavedPlaceholder')
+            : undefined
         }
         value={read(configTokenDraftAtom)}
         onChange={(val) => set(configTokenDraftAtom, val)}
@@ -114,9 +112,6 @@ export function SetupView({
         <Button
           size="xs"
           variant="outline"
-          tooltip={tr('setup.registerMcpTooltip', {
-            target: mcpConfigLabel
-          })}
           onPress={registerMcpInSelectedAgent}
         >
           {tr('setup.registerMcpButton')}
