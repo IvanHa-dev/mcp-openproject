@@ -368,6 +368,8 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
   snapshot.selectedTicket = parentTask
 
   let launchedWsId = ''
+  let launchedCreateWorktree = false
+  let launchedBranchName = ''
   const host = mockHost({
     requests: {
       'openproject.state.get': () => snapshot,
@@ -376,13 +378,20 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
         snapshot.selectedTicket = found
         return { workPackage: found, activities: [] }
       },
-      'openproject.agent.launch': ({ ticketId, workspaceId }) => {
+      'openproject.agent.launch': ({
+        ticketId,
+        workspaceId,
+        createWorktree,
+        branchName
+      }) => {
         launchedWsId = workspaceId ?? ''
+        launchedCreateWorktree = Boolean(createWorktree)
+        launchedBranchName = branchName ?? ''
         return {
           terminalId: `term-${ticketId}`,
           workspaceId: launchedWsId,
           workspaceName: 'acme-frontend',
-          branchSlug: `op-${ticketId}-task`,
+          branchSlug: launchedBranchName || `op-${ticketId}-task`,
           agent: 'codex'
         }
       }
@@ -404,6 +413,21 @@ test('auto-focuses child tasks and parent tasks in-place and pre-selects best ta
   assert.ok(view.find({ text: 'Start Agent' }))
   await view.press({ text: 'Start Agent' })
   assert.equal(launchedWsId, 'ws-frontend')
+  assert.equal(launchedCreateWorktree, false)
+
+  // Switching to New Worktree mode shows Target Repository, editable Worktree / Branch Name, and Create Worktree & Start CTA
+  await view.press({ text: 'Launch Agent' })
+  await view.press({ text: 'New Worktree' })
+  assert.ok(view.find({ text: 'Target Repository' }))
+  assert.ok(view.find({ text: 'Create Worktree & Start' }))
+  await view.type(
+    { label: 'Worktree / Branch Name' },
+    'op-124-responsive-sidebar',
+    { replace: true }
+  )
+  await view.press({ text: 'Create Worktree & Start' })
+  assert.equal(launchedCreateWorktree, true)
+  assert.equal(launchedBranchName, 'op-124-responsive-sidebar')
 
   // Clicking ↑ Parent: #123 auto-focuses parent #123 back in-place
   await view.press({ text: '↑ Parent: #123' })

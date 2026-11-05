@@ -22,6 +22,7 @@ import {
   matchBestWorkspaceForTicket
 } from '../openproject-api'
 import type {
+  DetectedAgentCli,
   OpenProjectActivity,
   OpenProjectWorkPackage,
   OpenProjectWorkspaceOption
@@ -32,6 +33,7 @@ import {
   confirmTicketUpdate,
   descriptionOpenAtom,
   launchAgentForSelectedTicket,
+  launchBranchDraftAtom,
   launchCreateWorktreeAtom,
   launchPanelOpenAtom,
   nextAssigneeDraftAtom,
@@ -59,6 +61,7 @@ export interface TicketDetailViewProps {
   statusTransitionOptions: Array<{ value: string; label: string; color?: string }>
   memberOptions: Array<{ value: string; label: string }>
   workspaces?: OpenProjectWorkspaceOption[]
+  detectedAgents?: DetectedAgentCli[]
 }
 
 export function TicketDetailView({
@@ -69,7 +72,8 @@ export function TicketDetailView({
   activities,
   statusTransitionOptions,
   memberOptions,
-  workspaces = []
+  workspaces = [],
+  detectedAgents = []
 }: TicketDetailViewProps) {
   const tr = createTranslator(locale)
   const assigneeDraft = read(nextAssigneeDraftAtom) || '0'
@@ -113,9 +117,10 @@ export function TicketDetailView({
 
   const launchPanelOpen = read(launchPanelOpenAtom)
   const createWorktree = read(launchCreateWorktreeAtom)
+  const branchDraft = read(launchBranchDraftAtom) || branchSlug
   const selectedAgent = read(configAgentDraftAtom) || 'codex'
 
-  const workspaceOptions =
+  const existingWorkspaceOptions =
     workspaces.length > 0
       ? workspaces.map((ws) => {
           const baseName =
@@ -132,13 +137,61 @@ export function TicketDetailView({
         })
       : [{ value: selectedWsId || 'default-workspace', label: selectedWsLabel }]
 
-  const agentOptions = [
-    { value: 'antigravity', label: 'Antigravity (agy)' },
-    { value: 'codex', label: 'OpenAI Codex (codex)' },
-    { value: 'claude', label: 'Claude Code (claude)' },
-    { value: 'cursor', label: 'Cursor Agent (cursor)' },
-    { value: 'opencode', label: 'OpenCode (opencode)' }
-  ]
+  // Deduplicate by repository when creating a new worktree so the selector mirrors Orca's Repo picker
+  const repoWorkspaceOptions = (() => {
+    if (workspaces.length === 0) {
+      return existingWorkspaceOptions
+    }
+    const byRepoKey = new Map<string, OpenProjectWorkspaceOption>()
+    for (const ws of workspaces) {
+      const repoKey = (ws.repoId || ws.repoName || ws.name).toLowerCase()
+      const existing = byRepoKey.get(repoKey)
+      if (
+        !existing ||
+        (ws.isMainWorktree && !existing.isMainWorktree) ||
+        (ws.isFocused && !existing.isFocused && existing.isMainWorktree === ws.isMainWorktree)
+      ) {
+        byRepoKey.set(repoKey, ws)
+      }
+    }
+    return Array.from(byRepoKey.values()).map((ws) => {
+      const repoLabel = ws.repoName || ws.name
+      const activeTag = ws.isFocused ? ' ★' : ''
+      return {
+        value: ws.id,
+        label: `${repoLabel}${activeTag}`
+      }
+    })
+  })()
+
+  const activeTargetOptions = createWorktree
+    ? repoWorkspaceOptions
+    : existingWorkspaceOptions
+  const effectiveSelectedWsId = activeTargetOptions.some(
+    (o) => o.value === selectedWsId
+  )
+    ? selectedWsId
+    : activeTargetOptions[0]?.value || selectedWsId
+
+  const installedAgents = detectedAgents.filter((a) => a.installed)
+  const agentSource =
+    installedAgents.length > 0 ? installedAgents : detectedAgents
+  const agentOptions =
+    agentSource.length > 0
+      ? agentSource.map((a) => ({
+          value: a.id,
+          label: a.installed
+            ? a.label
+            : `${a.label}${tr('agent.notDetectedSuffix')}`
+        }))
+      : [
+          { value: 'antigravity', label: 'Antigravity (agy)' },
+          { value: 'codex', label: 'OpenAI Codex (codex)' },
+          { value: 'claude', label: 'Claude Code (claude)' },
+          { value: 'gemini', label: 'Gemini CLI (gemini)' },
+          { value: 'cursor-agent', label: 'Cursor Agent (cursor-agent)' },
+          { value: 'opencode', label: 'OpenCode (opencode)' }
+        ]
 
   const parentWp = ticket.parentId
     ? allWorkPackages.find((w) => w.id === ticket.parentId)
@@ -198,7 +251,7 @@ export function TicketDetailView({
         />
       </Row>
 
-      {/* Inline Launch Agent Configuration Drawer */}
+      {/* Inline Launch Agent Configuration Drawer (Orca Native Worktree/Agent Flow) */}
       {launchPanelOpen ? (
         <Box
           border="accent"
@@ -207,28 +260,6 @@ export function TicketDetailView({
           padding="sm"
         >
           <Stack gap="xs">
-            <Stack gap="xs">
-              <Text size="xs" weight="medium">
-                {tr('ticket.targetWorkspaceLabel')}
-              </Text>
-              <Select
-                label={tr('ticket.targetWorkspaceLabel')}
-                value={selectedWsId}
-                options={workspaceOptions}
-                onChange={(v) => set(targetWorkspaceIdAtom, v)}
-              />
-            </Stack>
-            <Stack gap="xs">
-              <Text size="xs" weight="medium">
-                {tr('ticket.launchAgentSelectLabel')}
-              </Text>
-              <Select
-                label={tr('ticket.launchAgentSelectLabel')}
-                value={selectedAgent}
-                options={agentOptions}
-                onChange={(v) => set(configAgentDraftAtom, v)}
-              />
-            </Stack>
             <Row gap="xs" align="center" wrap>
               <Button
                 size="xs"
@@ -244,16 +275,59 @@ export function TicketDetailView({
                 variant={createWorktree ? 'solid' : 'outline'}
                 onPress={() => set(launchCreateWorktreeAtom, true)}
               >
-                {tr('ticket.launchModeWorktree', { branch: branchSlug })}
+                {tr('ticket.launchModeWorktree')}
               </Button>
             </Row>
+            <Stack gap="xs">
+              <Text size="xs" weight="medium">
+                {createWorktree
+                  ? tr('ticket.targetRepoLabel')
+                  : tr('ticket.targetWorkspaceLabel')}
+              </Text>
+              <Select
+                label={
+                  createWorktree
+                    ? tr('ticket.targetRepoLabel')
+                    : tr('ticket.targetWorkspaceLabel')
+                }
+                value={effectiveSelectedWsId}
+                options={activeTargetOptions}
+                onChange={(v) => set(targetWorkspaceIdAtom, v)}
+              />
+            </Stack>
+            {createWorktree ? (
+              <Input
+                label={tr('ticket.worktreeBranchLabel')}
+                placeholder={branchSlug}
+                value={branchDraft}
+                onChange={(val) => set(launchBranchDraftAtom, val)}
+              />
+            ) : null}
+            <Stack gap="xs">
+              <Text size="xs" weight="medium">
+                {tr('ticket.launchAgentSelectLabel')}
+              </Text>
+              <Select
+                label={tr('ticket.launchAgentSelectLabel')}
+                value={selectedAgent}
+                options={agentOptions}
+                onChange={(v) => set(configAgentDraftAtom, v)}
+              />
+            </Stack>
             <Row gap="xs" align="center">
               <Button
                 size="xs"
                 tone="accent"
-                onPress={() => launchAgentForSelectedTicket(ticket.id)}
+                onPress={() => {
+                  if (effectiveSelectedWsId !== selectedWsId) {
+                    set(targetWorkspaceIdAtom, effectiveSelectedWsId)
+                  }
+                  void launchAgentForSelectedTicket(ticket.id)
+                }}
               >
-                {tr('ticket.startAgentButton')}
+                {createWorktree
+                  ? tr('ticket.createAndStartButton')
+                  : tr('ticket.startAgentButton')}
               </Button>
               <Button
                 size="xs"

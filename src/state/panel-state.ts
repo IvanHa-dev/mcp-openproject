@@ -1,6 +1,9 @@
 import { atom, plugin, read, set } from 'orca'
 import { t, type UiLocale } from '../i18n'
-import { matchBestWorkspaceForTicket } from '../openproject-api'
+import {
+  formatWorktreeBranchSlug,
+  matchBestWorkspaceForTicket
+} from '../openproject-api'
 import type { OpenProjectStateSnapshot } from '../protocol'
 import {
   isStatusClosedName,
@@ -46,6 +49,7 @@ export const focusAnchorTicketIdAtom = atom<number | null>(null)
 export const targetWorkspaceIdAtom = atom<string>('')
 export const launchPanelOpenAtom = atom<boolean>(false)
 export const launchCreateWorktreeAtom = atom<boolean>(false)
+export const launchBranchDraftAtom = atom<string>('')
 
 export const nextStatusDraftAtom = atom<string>('')
 export const nextAssigneeDraftAtom = atom<string>('0')
@@ -117,6 +121,13 @@ export function syncDraftsFromSnapshot(
       )
       set(lastSyncedTicketIdAtom, snapshot.selectedTicket.id)
       set(targetWorkspaceIdAtom, bestWs?.id ?? '')
+      set(
+        launchBranchDraftAtom,
+        formatWorktreeBranchSlug(
+          snapshot.selectedTicket.id,
+          snapshot.selectedTicket.subject
+        )
+      )
       set(nextStatusDraftAtom, snapshot.selectedTicket.status)
       set(
         nextAssigneeDraftAtom,
@@ -288,6 +299,10 @@ export async function selectTicket(
       )
       set(lastSyncedTicketIdAtom, id)
       set(targetWorkspaceIdAtom, bestWs?.id ?? '')
+      set(
+        launchBranchDraftAtom,
+        formatWorktreeBranchSlug(cachedWp.id, cachedWp.subject)
+      )
       set(stateAtom, {
         ...currentSnapshot,
         selectedTicket: cachedWp,
@@ -462,11 +477,13 @@ export async function launchAgentForSelectedTicket(
   try {
     const selectedWsId = read(targetWorkspaceIdAtom).trim()
     const createWorktree = read(launchCreateWorktreeAtom)
+    const branchName = read(launchBranchDraftAtom).trim()
     const res = await plugin.request('openproject.agent.launch', {
       ticketId,
       agent: read(configAgentDraftAtom),
       ...(selectedWsId ? { workspaceId: selectedWsId } : {}),
-      createWorktree
+      createWorktree,
+      ...(createWorktree && branchName ? { branchName } : {})
     })
     set(launchPanelOpenAtom, false)
     set(feedbackMessageAtom, {

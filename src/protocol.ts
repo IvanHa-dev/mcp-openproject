@@ -82,7 +82,9 @@ export interface OpenProjectWorkspaceOption {
   path: string
   branch: string | null
   kind: 'worktree' | 'folder'
+  repoId?: string
   repoName?: string
+  isMainWorktree?: boolean
   isFocused?: boolean
 }
 
@@ -130,6 +132,7 @@ export interface LaunchAgentInput {
   agent?: string
   workspaceId?: string
   createWorktree?: boolean
+  branchName?: string
 }
 
 export interface LaunchAgentOutput {

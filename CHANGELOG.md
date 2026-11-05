@@ -5,7 +5,9 @@ All notable changes to **OpenProject MCP for Orca (`mcp-openproject`)** will be 
 ## [0.1.3] - 2026-04-11
 
 ### Added
-- **Inline Workspace & Agent Launch Drawer**: Choose target Orca workspace/worktree, select an agent CLI (`codex`, `claude`, `antigravity`, `gemini`, etc.), and optionally create a dedicated `op-<id>-<slug>` git worktree directly inside the ticket detail view.
+- **Orca-Native Worktree & Agent Launch Drawer**:
+  - Top-level mode switch between **Existing Workspace** (all open worktrees/branches) and **New Worktree** (deduplicated Repository selector + editable `op-<id>-<slug>` branch name).
+  - Dynamic **Agent CLI** selector populated from locally detected agent binaries (`antigravity`/`agy`, `codex`, `claude`, `gemini`, `cursor-agent`, `opencode`, etc.).
 - **Native Scroll-Anchoring Auto-Scroll**: Smoothly scroll to parent/child work packages without reordering the task list, and expand the subtask scrollable container height.
 
 ### Changed
@@ -13,6 +15,10 @@ All notable changes to **OpenProject MCP for Orca (`mcp-openproject`)** will be 
 - **Cleaner Bilingual UI Labels (`en` / `vi`)**: Removed redundant parenthetical explanations from form labels and dropdown options.
 
 ### Fixed
+- **Zero Orphan Terminal Sessions on Agent Launch**:
+  - Added Windows (`%LOCALAPPDATA%\Programs\orca\resources\bin\orca.exe`) and macOS (`/Applications/Orca.app/Contents/Resources/bin/orca`) CLI resolution in `resolveOrcaCliPath()`.
+  - Resolved repository ID (`id:<repoId>`) when creating worktrees so creating a new worktree from a child worktree never fails or falls back to an unfocused session.
+  - Automatically reuse and focus existing `op-<id>-<slug>` worktrees if already created.
 - **Filter Bar Stability**: Keep `TicketFilters` mounted during scroll pulse animations and reset sibling `<Select>` portals cleanly.
 
 ## [0.1.2] - 2026-04-11

@@ -356,7 +356,8 @@ export default function Panel() {
               activities,
               statusTransitionOptions,
               memberOptions,
-              workspaces
+              workspaces,
+              detectedAgents
             })}
           </Box>
         ) : null}
