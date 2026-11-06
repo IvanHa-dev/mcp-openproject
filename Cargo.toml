@@ -1,6 +1,6 @@
 [package]
 name = "mcp-openproject"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Fast, context-frugal OpenProject Community Edition MCP server in Rust with preview-then-confirm guarded writes for Orca agents."
 license = "MIT"

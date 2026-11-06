@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "openproject",
   "name": "OpenProject MCP for Orca",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Community-built Orca sidebar and Rust MCP integration for OpenProject CE, with guarded ticket writes.",
   "cover": {
     "path": "assets/cover.png",
