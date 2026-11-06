@@ -494,5 +494,20 @@ mod tests {
         assert_eq!(exec_res["confirmed"], true);
         assert_eq!(exec_res["work_package"]["status"], "In Progress");
         assert_eq!(exec_res["work_package"]["lock_version"], 4);
+
+        // 7. Filtering by a hidden field in list_work_packages is refused fail-closed
+        let mut hidden_cfg = client.config.clone();
+        hidden_cfg.hide_work_package_fields = vec!["assignee".to_string()];
+        let hidden_client = OpenProjectClient::new(hidden_cfg);
+        let hidden_filter_err = call_tool(
+            &hidden_client,
+            "list_work_packages",
+            &json!({ "assignee_me": true }),
+        );
+        assert!(hidden_filter_err.is_err());
+        assert!(hidden_filter_err
+            .unwrap_err()
+            .to_string()
+            .contains("Hidden Field Policy: cannot filter by 'assignee'"));
     }
 }

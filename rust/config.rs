@@ -20,7 +20,7 @@ pub enum ProjectLinkState {
     Malformed,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenProjectConfig {
     pub base_url: String,
     pub api_token: String,
@@ -32,6 +32,28 @@ pub struct OpenProjectConfig {
     pub enable_work_package_write: bool,
     pub hide_project_fields: Vec<String>,
     pub hide_work_package_fields: Vec<String>,
+}
+
+impl std::fmt::Debug for OpenProjectConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let masked_token = if self.api_token.is_empty() {
+            ""
+        } else {
+            "[REDACTED]"
+        };
+        f.debug_struct("OpenProjectConfig")
+            .field("base_url", &self.base_url)
+            .field("api_token", &masked_token)
+            .field("read_projects", &self.read_projects)
+            .field("write_projects", &self.write_projects)
+            .field("enable_project_read", &self.enable_project_read)
+            .field("enable_project_write", &self.enable_project_write)
+            .field("enable_work_package_read", &self.enable_work_package_read)
+            .field("enable_work_package_write", &self.enable_work_package_write)
+            .field("hide_project_fields", &self.hide_project_fields)
+            .field("hide_work_package_fields", &self.hide_work_package_fields)
+            .finish()
+    }
 }
 
 impl OpenProjectConfig {
@@ -463,5 +485,24 @@ mod tests {
         assert!(validate_path_segment("acme/../../admin", "project").is_err());
         assert!(validate_path_segment("acme?pageSize=999", "project").is_err());
         assert!(validate_path_segment("acme%2fadmin", "project").is_err());
+    }
+
+    #[test]
+    fn test_debug_redacts_api_token() {
+        let cfg = OpenProjectConfig {
+            base_url: "https://op.example.com".to_string(),
+            api_token: "opapi-super-secret-token-999".to_string(),
+            read_projects: vec!["*".to_string()],
+            write_projects: vec!["*".to_string()],
+            enable_project_read: true,
+            enable_project_write: true,
+            enable_work_package_read: true,
+            enable_work_package_write: true,
+            hide_project_fields: vec![],
+            hide_work_package_fields: vec![],
+        };
+        let debug_str = format!("{:?}", cfg);
+        assert!(debug_str.contains("[REDACTED]"));
+        assert!(!debug_str.contains("opapi-super-secret-token-999"));
     }
 }

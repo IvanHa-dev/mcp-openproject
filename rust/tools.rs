@@ -874,6 +874,55 @@ pub fn call_tool(client: &OpenProjectClient, name: &str, args: &Value) -> Result
                     .trim()
                     .to_lowercase()
             };
+            let query_filter = args
+                .get("query")
+                .or_else(|| args.get("search"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase();
+            let type_filter = args
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase();
+            let priority_filter = args
+                .get("priority")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase();
+            let assignee_filter = args
+                .get("assignee")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_lowercase();
+
+            if (!status_filter.is_empty() && status_filter != "all")
+                && client.config.is_work_package_field_hidden("status")
+            {
+                bail!("403 Forbidden / Hidden Field Policy: cannot filter by 'status' because it is hidden by OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS");
+            }
+            if !type_filter.is_empty() && client.config.is_work_package_field_hidden("type") {
+                bail!("403 Forbidden / Hidden Field Policy: cannot filter by 'type' because it is hidden by OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS");
+            }
+            if !priority_filter.is_empty() && client.config.is_work_package_field_hidden("priority")
+            {
+                bail!("403 Forbidden / Hidden Field Policy: cannot filter by 'priority' because it is hidden by OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS");
+            }
+            if (assignee_me || !assignee_filter.is_empty())
+                && client.config.is_work_package_field_hidden("assignee")
+            {
+                bail!("403 Forbidden / Hidden Field Policy: cannot filter by 'assignee' because it is hidden by OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS");
+            }
+            if !query_filter.is_empty()
+                && (client.config.is_work_package_field_hidden("subject")
+                    || client.config.is_work_package_field_hidden("description"))
+            {
+                bail!("403 Forbidden / Hidden Field Policy: cannot search work packages when 'subject' or 'description' is hidden by OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS");
+            }
 
             let mut op_filters: Vec<Value> = Vec::new();
             if status_filter == "open" {
@@ -913,32 +962,6 @@ pub fn call_tool(client: &OpenProjectClient, name: &str, args: &Value) -> Result
                 .and_then(|a| a.as_array())
                 .cloned()
                 .unwrap_or_default();
-
-            let query_filter = args
-                .get("query")
-                .or_else(|| args.get("search"))
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_lowercase();
-            let type_filter = args
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_lowercase();
-            let priority_filter = args
-                .get("priority")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_lowercase();
-            let assignee_filter = args
-                .get("assignee")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .trim()
-                .to_lowercase();
 
             let items: Vec<Value> = elements
                 .iter()

@@ -14,6 +14,11 @@ All notable changes to **OpenProject MCP for Orca (`mcp-openproject`)** will be 
 - **Subtask Navigation**: Keep subtasks inside a bounded scrollable container and swap parent/child slots in-place when navigating task hierarchies.
 - **Cleaner Bilingual UI Labels (`en` / `vi`)**: Removed redundant parenthetical explanations from form labels and dropdown options.
 
+### Security
+- **Prompt Delimiter Hardening**: Escape look-alike `<untrusted_ticket_data>` and `</untrusted_ticket_data>` tags inside ticket subjects, subtasks, and descriptions in `buildAgentTicketPrompt` so untrusted issue content cannot break out of its delimiter block.
+- **Hidden Field Query Protection**: Refuse `list_work_packages`, `search_work_packages`, and `list_my_open_work_packages` filter parameters (`status`, `open_only`, `type`, `priority`, `assignee`, `assignee_me`, `query`) when the target field is hidden via `OPENPROJECT_HIDE_WORK_PACKAGE_FIELDS`.
+- **Credential Redaction in Debug Output**: Implement custom `fmt::Debug` for `OpenProjectConfig` so `api_token` is always formatted as `"[REDACTED]"`.
+
 ### Fixed
 - **Zero Orphan Terminal Sessions on Agent Launch**:
   - Added Windows (`%LOCALAPPDATA%\Programs\orca\resources\bin\orca.exe`) and macOS (`/Applications/Orca.app/Contents/Resources/bin/orca`) CLI resolution in `resolveOrcaCliPath()`.
