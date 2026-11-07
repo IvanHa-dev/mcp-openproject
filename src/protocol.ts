@@ -96,7 +96,6 @@ export interface OpenProjectConfigSummary {
   writeProjects: string
   defaultAgent: string
   mcpBinaryPath: string
-  injectEnvOnAgentLaunch: boolean
   pageSize?: number
   focusProject?: string
 }
@@ -159,7 +158,6 @@ declare module 'orca' {
         writeProjects?: string
         defaultAgent?: string
         mcpBinaryPath?: string
-        injectEnvOnAgentLaunch?: boolean
         pageSize?: number
       }
       output: OpenProjectStateSnapshot

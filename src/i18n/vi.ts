@@ -80,8 +80,6 @@ export const VI_LOCALE: Record<string, string> = {
   'setup.apiTokenSavedPlaceholder': 'Đã lưu',
   'setup.apiTokenEmptyPlaceholder': '',
   'setup.defaultAgentLabel': 'Agent CLI mặc định',
-  'setup.autoInjectLabel': 'Tự động truyền biến Env',
-  'setup.autoInjectDesc': 'Tự động truyền URL & API token khi chạy Agent',
   'setup.saveButton': 'Lưu cấu hình',
   'setup.registerMcpButton': 'Đăng ký MCP',
   'setup.advancedTitle': 'Nâng cao',

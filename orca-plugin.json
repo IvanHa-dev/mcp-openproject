@@ -51,12 +51,6 @@
         "command": "openproject.refresh"
       }
     ],
-    "hooks": [
-      {
-        "event": "agent.launch.before",
-        "onError": "pass"
-      }
-    ],
     "settings": [
       {
         "key": "baseUrl",
@@ -124,13 +118,6 @@
         "type": "string",
         "default": "mcp-openproject",
         "placeholder": "mcp-openproject"
-      },
-      {
-        "key": "injectEnvOnAgentLaunch",
-        "title": "Inject OpenProject Env on Agent Launch",
-        "description": "Automatically pass OPENPROJECT_BASE_URL, OPENPROJECT_API_TOKEN, and project allowlists to agents started in Orca.",
-        "type": "boolean",
-        "default": true
       }
     ]
   },

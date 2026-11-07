@@ -120,58 +120,99 @@ export function TicketDetailView({
   const branchDraft = read(launchBranchDraftAtom) || branchSlug
   const selectedAgent = read(configAgentDraftAtom) || 'codex'
 
-  const existingWorkspaceOptions =
-    workspaces.length > 0
-      ? workspaces.map((ws) => {
-          const baseName =
-            ws.repoName && ws.name && ws.name !== ws.repoName
-              ? `${ws.repoName} / ${ws.name}`
-              : ws.repoName || ws.name
+  const getRepoKey = (ws: OpenProjectWorkspaceOption): string =>
+    (ws.repoName || ws.repoId || ws.name).toLowerCase()
+
+  const projTokens = `${ticket.projectIdentifier} ${ticket.project}`
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && t !== 'project')
+
+  const repoGroups = (() => {
+    const map = new Map<
+      string,
+      {
+        key: string
+        label: string
+        representative: OpenProjectWorkspaceOption
+        worktrees: OpenProjectWorkspaceOption[]
+        hasFocused: boolean
+        matchesProject: boolean
+      }
+    >()
+    for (const ws of workspaces) {
+      const key = getRepoKey(ws)
+      const label = ws.repoName || ws.name
+      const existing = map.get(key)
+      const matchesProject = projTokens.some((tok) => key.includes(tok))
+      if (!existing) {
+        map.set(key, {
+          key,
+          label,
+          representative: ws,
+          worktrees: [ws],
+          hasFocused: Boolean(ws.isFocused),
+          matchesProject
+        })
+      } else {
+        existing.worktrees.push(ws)
+        if (ws.isFocused) existing.hasFocused = true
+        if (ws.isMainWorktree && !existing.representative.isMainWorktree) {
+          existing.representative = ws
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.matchesProject && !b.matchesProject) return -1
+      if (!a.matchesProject && b.matchesProject) return 1
+      if (a.hasFocused && !b.hasFocused) return -1
+      if (!a.hasFocused && b.hasFocused) return 1
+      return a.label.localeCompare(b.label)
+    })
+  })()
+
+  const activeRepoGroup =
+    (selectedWsObj
+      ? repoGroups.find((g) => g.key === getRepoKey(selectedWsObj))
+      : undefined) ?? repoGroups[0]
+
+  const repoSelectOptions =
+    repoGroups.length > 0
+      ? repoGroups.map((g) => ({
+          value: g.representative.id,
+          label: `${g.label}${g.hasFocused ? ' ★' : ''}`
+        }))
+      : [{ value: selectedWsId || 'default-workspace', label: selectedWsLabel }]
+
+  const selectedRepoRepId =
+    activeRepoGroup?.representative.id ||
+    repoSelectOptions[0]?.value ||
+    selectedWsId
+
+  const worktreeOptionsForRepo =
+    activeRepoGroup && activeRepoGroup.worktrees.length > 0
+      ? activeRepoGroup.worktrees.map((ws) => {
+          const wtName = ws.name || ws.branch || ws.repoName || ws.id
           const branchInfo =
-            ws.branch && ws.branch !== ws.name ? ` (${ws.branch})` : ''
+            ws.branch && ws.branch !== wtName ? ` (${ws.branch})` : ''
+          const mainTag = ws.isMainWorktree ? ' [main]' : ''
           const activeTag = ws.isFocused ? ' ★' : ''
           return {
             value: ws.id,
-            label: `${baseName}${branchInfo}${activeTag}`
+            label: `${wtName}${branchInfo}${mainTag}${activeTag}`
           }
         })
       : [{ value: selectedWsId || 'default-workspace', label: selectedWsLabel }]
 
-  // Deduplicate by repository when creating a new worktree so the selector mirrors Orca's Repo picker
-  const repoWorkspaceOptions = (() => {
-    if (workspaces.length === 0) {
-      return existingWorkspaceOptions
-    }
-    const byRepoKey = new Map<string, OpenProjectWorkspaceOption>()
-    for (const ws of workspaces) {
-      const repoKey = (ws.repoId || ws.repoName || ws.name).toLowerCase()
-      const existing = byRepoKey.get(repoKey)
-      if (
-        !existing ||
-        (ws.isMainWorktree && !existing.isMainWorktree) ||
-        (ws.isFocused && !existing.isFocused && existing.isMainWorktree === ws.isMainWorktree)
-      ) {
-        byRepoKey.set(repoKey, ws)
-      }
-    }
-    return Array.from(byRepoKey.values()).map((ws) => {
-      const repoLabel = ws.repoName || ws.name
-      const activeTag = ws.isFocused ? ' ★' : ''
-      return {
-        value: ws.id,
-        label: `${repoLabel}${activeTag}`
-      }
-    })
-  })()
-
-  const activeTargetOptions = createWorktree
-    ? repoWorkspaceOptions
-    : existingWorkspaceOptions
-  const effectiveSelectedWsId = activeTargetOptions.some(
+  const effectiveSelectedWsId = worktreeOptionsForRepo.some(
     (o) => o.value === selectedWsId
   )
     ? selectedWsId
-    : activeTargetOptions[0]?.value || selectedWsId
+    : (activeRepoGroup
+        ? matchBestWorkspaceForTicket(ticket, activeRepoGroup.worktrees)?.id
+        : undefined) ||
+      worktreeOptionsForRepo[0]?.value ||
+      selectedWsId
 
   const installedAgents = detectedAgents.filter((a) => a.installed)
   const agentSource =
@@ -274,14 +315,22 @@ export function TicketDetailView({
               </Button>
             </Row>
             <Select
-              label={
-                createWorktree
-                  ? tr('ticket.targetRepoLabel')
-                  : tr('ticket.targetWorkspaceLabel')
-              }
-              value={effectiveSelectedWsId}
-              options={activeTargetOptions}
-              onChange={(v) => set(targetWorkspaceIdAtom, v)}
+              label={tr('ticket.targetRepoLabel')}
+              value={selectedRepoRepId}
+              options={repoSelectOptions}
+              onChange={(repId) => {
+                const nextGroup = repoGroups.find(
+                  (g) => g.representative.id === repId
+                )
+                if (nextGroup) {
+                  const bestInRepo =
+                    matchBestWorkspaceForTicket(ticket, nextGroup.worktrees) ??
+                    nextGroup.representative
+                  set(targetWorkspaceIdAtom, bestInRepo.id)
+                } else {
+                  set(targetWorkspaceIdAtom, repId)
+                }
+              }}
             />
             {createWorktree ? (
               <Input
@@ -289,7 +338,14 @@ export function TicketDetailView({
                 value={branchDraft}
                 onChange={(val) => set(launchBranchDraftAtom, val)}
               />
-            ) : null}
+            ) : (
+              <Select
+                label={tr('ticket.targetWorkspaceLabel')}
+                value={effectiveSelectedWsId}
+                options={worktreeOptionsForRepo}
+                onChange={(v) => set(targetWorkspaceIdAtom, v)}
+              />
+            )}
             <Select
               label={tr('ticket.launchAgentSelectLabel')}
               value={selectedAgent}

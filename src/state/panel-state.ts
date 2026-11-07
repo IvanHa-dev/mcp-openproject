@@ -77,7 +77,6 @@ export const configReadProjectsDraftAtom = atom<string>('*')
 export const configWriteProjectsDraftAtom = atom<string>('*')
 export const configAgentDraftAtom = atom<string>('codex')
 export const configMcpBinDraftAtom = atom<string>('mcp-openproject')
-export const configInjectEnvDraftAtom = atom<boolean>(true)
 
 export function syncDraftsFromSnapshot(
   snapshot: OpenProjectStateSnapshot,
@@ -94,7 +93,6 @@ export function syncDraftsFromSnapshot(
   set(configWriteProjectsDraftAtom, snapshot.config.writeProjects || '*')
   set(configAgentDraftAtom, snapshot.config.defaultAgent || 'codex')
   set(configMcpBinDraftAtom, snapshot.config.mcpBinaryPath || 'mcp-openproject')
-  set(configInjectEnvDraftAtom, snapshot.config.injectEnvOnAgentLaunch)
   if (snapshot.config.pageSize) {
     set(pageSizeAtom, String(snapshot.config.pageSize))
   }
@@ -531,7 +529,6 @@ export async function saveConfiguration(): Promise<void> {
       writeProjects: string
       defaultAgent: string
       mcpBinaryPath: string
-      injectEnvOnAgentLaunch: boolean
       pageSize: number
     } = {
       baseUrl: read(configUrlDraftAtom),
@@ -539,7 +536,6 @@ export async function saveConfiguration(): Promise<void> {
       writeProjects: read(configWriteProjectsDraftAtom),
       defaultAgent: read(configAgentDraftAtom),
       mcpBinaryPath: read(configMcpBinDraftAtom),
-      injectEnvOnAgentLaunch: read(configInjectEnvDraftAtom),
       pageSize: Number(read(pageSizeAtom) || '100')
     }
     if (tokenDraft) {

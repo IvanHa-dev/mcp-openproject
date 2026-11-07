@@ -124,7 +124,6 @@ interface ResolvedCredentials {
   writeProjects: string
   defaultAgent: string
   mcpBinaryPath: string
-  injectEnvOnAgentLaunch: boolean
 }
 
 const SUPPORTED_AGENT_CATALOG: ReadonlyArray<{
@@ -322,9 +321,6 @@ async function resolveCredentials(orca: OrcaWorkerApi): Promise<ResolvedCredenti
       ? settings.mcpBinaryPath.trim()
       : 'mcp-openproject'
 
-  const injectEnvOnAgentLaunch =
-    typeof settings.injectEnvOnAgentLaunch === 'boolean' ? settings.injectEnvOnAgentLaunch : true
-
   let apiToken = ''
   let tokenSource: 'secrets' | 'storage' | 'env' | 'none' = 'none'
 
@@ -362,8 +358,7 @@ async function resolveCredentials(orca: OrcaWorkerApi): Promise<ResolvedCredenti
     readProjects: readProjects || '*',
     writeProjects: writeProjects || '*',
     defaultAgent,
-    mcpBinaryPath,
-    injectEnvOnAgentLaunch
+    mcpBinaryPath
   }
 }
 
@@ -552,22 +547,46 @@ async function readOrcaWorkspaces(
     ])
     const rawList = Array.isArray(listRes?.workspaces) ? listRes.workspaces : []
     const ctxAny = (ctxRes ?? {}) as {
-      workspace?: { id?: string } | null
+      workspace?: { id?: string; path?: string } | null
       displayName?: string
       branch?: string
     }
-    const focusedId = ctxAny?.workspace?.id ?? ''
+    const focusedId = (ctxAny?.workspace?.id ?? '').trim()
+    const focusedPathFromId = focusedId.includes('::')
+      ? focusedId.split('::').slice(1).join('::').trim()
+      : ''
+    const focusedPath = (
+      (ctxAny?.workspace?.path ?? '').trim() || focusedPathFromId
+    )
     const focusedName = (ctxAny?.displayName ?? '').trim()
     const focusedBranch = (ctxAny?.branch ?? '').trim()
+
+    const hasExactFocusedId = Boolean(
+      focusedId && rawList.some((w) => w.id === focusedId)
+    )
+    const hasExactFocusedPath = Boolean(
+      focusedPath && rawList.some((w) => w.path === focusedPath)
+    )
+    // Only fall back to displayName+branch when neither id nor path matched AND the displayName+branch is unique across all workspaces
+    const nameBranchMatches =
+      !hasExactFocusedId && !hasExactFocusedPath && focusedName
+        ? rawList.filter(
+            (w) =>
+              w.name === focusedName &&
+              (!focusedBranch || w.branch === focusedBranch)
+          )
+        : []
+    const uniqueNameMatchId =
+      nameBranchMatches.length === 1 ? nameBranchMatches[0].id : ''
+
     const mapped: OpenProjectWorkspaceOption[] = rawList.map((ws) => {
       const repoId = ws.id.includes('::') ? ws.id.split('::')[0] : undefined
       const repoName = inferRepoNameFromWorkspacePath(ws.path, ws.name)
       const isMainWorktree = !isWorktreeWorkspacePath(ws.path)
       const isFocused = Boolean(
         (focusedId && ws.id === focusedId) ||
-          (focusedName &&
-            ws.name === focusedName &&
-            (!focusedBranch || ws.branch === focusedBranch))
+          (focusedPath && ws.path === focusedPath) ||
+          (uniqueNameMatchId && ws.id === uniqueNameMatchId)
       )
       return {
         id: ws.id,
@@ -584,24 +603,17 @@ async function readOrcaWorkspaces(
     const sorted = mapped.sort((a, b) => {
       if (a.isFocused && !b.isFocused) return -1
       if (!a.isFocused && b.isFocused) return 1
+      const repoCmp = (a.repoName || a.name).localeCompare(
+        b.repoName || b.name
+      )
+      if (repoCmp !== 0) return repoCmp
       const aPrimary = Boolean(a.isMainWorktree)
       const bPrimary = Boolean(b.isMainWorktree)
       if (aPrimary && !bPrimary) return -1
       if (!aPrimary && bPrimary) return 1
-      return (a.repoName || a.name).localeCompare(b.repoName || b.name)
+      return a.name.localeCompare(b.name)
     })
-    // Keep up to 3 entries per repoName (primary repo + active/focused worktrees) up to 30 total
-    const countByRepo = new Map<string, number>()
-    const deduped: OpenProjectWorkspaceOption[] = []
-    for (const ws of sorted) {
-      const key = (ws.repoId || ws.repoName || ws.name).toLowerCase()
-      const currentCount = countByRepo.get(key) ?? 0
-      if (currentCount < 3 || ws.isFocused || ws.isMainWorktree) {
-        countByRepo.set(key, currentCount + 1)
-        deduped.push(ws)
-      }
-    }
-    return deduped.slice(0, 30)
+    return sorted.slice(0, 200)
   } catch {
     return []
   }
@@ -721,7 +733,6 @@ async function buildSnapshot(orca: OrcaWorkerApi): Promise<OpenProjectStateSnaps
     writeProjects: creds.writeProjects,
     defaultAgent: creds.defaultAgent,
     mcpBinaryPath: creds.mcpBinaryPath,
-    injectEnvOnAgentLaunch: creds.injectEnvOnAgentLaunch,
     pageSize,
     focusProject
   }
@@ -1176,24 +1187,6 @@ export default function activate(orca: OrcaWorkerApi): void {
   liveCache.lastSyncedAt = null
   liveCache.lastError = null
 
-  // Automatically inject OpenProject MCP environment variables when Orca starts an agent CLI
-  orca.hooks.on('agent.launch.before', async (event, next) => {
-    const creds = await resolveCredentials(orca)
-    if (!creds.injectEnvOnAgentLaunch || !creds.baseUrl || !creds.apiToken) {
-      return next(event)
-    }
-    return next({
-      ...event,
-      env: {
-        ...event.env,
-        OPENPROJECT_BASE_URL: creds.baseUrl,
-        OPENPROJECT_API_TOKEN: creds.apiToken,
-        OPENPROJECT_READ_PROJECTS: creds.readProjects,
-        OPENPROJECT_WRITE_PROJECTS: creds.writeProjects
-      }
-    })
-  })
-
   orca.commands.register('openproject.refresh', async () => {
     await syncFromRemoteIfConfigured(orca, undefined, undefined, true)
     const snapshot = await broadcastSnapshot(orca)
@@ -1266,9 +1259,6 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
     if (typeof input.mcpBinaryPath === 'string' && input.mcpBinaryPath.trim()) {
       updates.push(orca.settings.set('mcpBinaryPath', input.mcpBinaryPath.trim()))
-    }
-    if (typeof input.injectEnvOnAgentLaunch === 'boolean') {
-      updates.push(orca.settings.set('injectEnvOnAgentLaunch', input.injectEnvOnAgentLaunch))
     }
     if (input.pageSize !== undefined) {
       const normalized = normalizePageSize(input.pageSize)
@@ -2065,11 +2055,29 @@ export default function activate(orca: OrcaWorkerApi): void {
         }
 
         if (!terminalId) {
-          // Use --repo id:<repoId> when available so creating a worktree succeeds even if a child worktree was selected
+          // Resolve the primary repository checkout or repo name so creating a worktree succeeds even when a child worktree was selected
+          const mainRepoWs =
+            workspaces.find(
+              (w) =>
+                w.isMainWorktree &&
+                (w.repoName || '').toLowerCase() ===
+                  (matchedWs?.repoName || '').toLowerCase()
+            ) ?? matchedWs
           const repoId =
+            mainRepoWs?.repoId ||
             matchedWs?.repoId ||
+            (mainRepoWs?.id?.includes('::')
+              ? mainRepoWs.id.split('::')[0]
+              : '') ||
             (matchedWs?.id?.includes('::') ? matchedWs.id.split('::')[0] : '')
-          const repoSelector = repoId ? `id:${repoId}` : `path:${wsPath}`
+          const repoRootPath = mainRepoWs?.path || wsPath
+          const repoSelector = repoId
+            ? `id:${repoId}`
+            : mainRepoWs?.isMainWorktree && repoRootPath
+              ? `path:${repoRootPath}`
+              : matchedWs?.repoName
+                ? `name:${matchedWs.repoName}`
+                : `path:${wsPath}`
           const wtRes = (await runOrcaCliJson([
             'worktree',
             'create',

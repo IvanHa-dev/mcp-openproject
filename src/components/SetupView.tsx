@@ -1,7 +1,6 @@
 import {
   Box,
   Button,
-  Checkbox,
   CodeView,
   Collapsible,
   Input,
@@ -16,7 +15,6 @@ import { createTranslator, type UiLocale } from '../i18n'
 import type { DetectedAgentCli, OpenProjectStateSnapshot } from '../protocol'
 import {
   configAgentDraftAtom,
-  configInjectEnvDraftAtom,
   configReadProjectsDraftAtom,
   configTokenDraftAtom,
   configUrlDraftAtom,
@@ -98,12 +96,6 @@ export function SetupView({
         value={read(configAgentDraftAtom)}
         options={agentOptions}
         onChange={(val) => set(configAgentDraftAtom, val)}
-      />
-      <Checkbox
-        label={tr('setup.autoInjectLabel')}
-        description={tr('setup.autoInjectDesc')}
-        checked={read(configInjectEnvDraftAtom)}
-        onChange={(checked) => set(configInjectEnvDraftAtom, checked)}
       />
       <Row gap="xs" align="center" wrap>
         <Button size="xs" tone="accent" onPress={saveConfiguration}>

@@ -80,8 +80,6 @@ export const EN_LOCALE: Record<string, string> = {
   'setup.apiTokenSavedPlaceholder': 'Saved',
   'setup.apiTokenEmptyPlaceholder': '',
   'setup.defaultAgentLabel': 'Default Agent CLI',
-  'setup.autoInjectLabel': 'Auto-inject env vars',
-  'setup.autoInjectDesc': 'Pass OpenProject URL & token when starting agents',
   'setup.saveButton': 'Save Settings',
   'setup.registerMcpButton': 'Register MCP',
   'setup.advancedTitle': 'Advanced',

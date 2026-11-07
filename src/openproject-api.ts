@@ -201,35 +201,52 @@ export function matchBestWorkspaceForTicket(
   const wantsMobile = /\b(mobile|flutter|app|ios|android)\b/i.test(subjHay)
 
   const scoreWorkspace = (ws: OpenProjectWorkspaceOption): number => {
-    const wsHay = `${ws.repoName ?? ''} ${ws.name} ${ws.path}`.toLowerCase()
+    const repoLower = (ws.repoName ?? '').toLowerCase()
+    const branchAndNameLower = `${ws.name} ${ws.branch ?? ''}`.toLowerCase()
+    const wsHay = `${repoLower} ${branchAndNameLower} ${ws.path}`.toLowerCase()
     let score = 0
 
     // Direct token overlap between projectIdentifier and workspace repo/name
     const projTokens = projHay
       .split(/[^a-z0-9]+/)
       .filter((t) => t.length >= 3 && t !== 'project')
+    let matchedRepoToken = false
+    let matchedWorktreeToken = false
     for (const tok of projTokens) {
-      if (wsHay.includes(tok)) {
-        score += 25
+      if (repoLower.includes(tok)) {
+        score += 30
+        matchedRepoToken = true
+      } else if (wsHay.includes(tok)) {
+        score += 20
+        matchedWorktreeToken = true
       }
     }
-
 
     if (score > 0) {
       if (wantsBackend && wsHay.includes('backend')) score += 20
       else if (wantsDocs && wsHay.includes('doc')) score += 20
       else if (wantsMobile && (wsHay.includes('flutter') || wsHay.includes('mobile')))
         score += 20
-      else if (!wantsBackend && !wantsDocs && !wantsMobile && wsHay.includes('frontend'))
-        score += 12
+      else if (!wantsBackend && !wantsDocs && !wantsMobile) {
+        if (wsHay.includes('frontend')) score += 14
+        else if (wsHay.includes('backend')) score += 8
+        else if (repoLower.includes('doc')) score -= 8
+      }
 
-      // Prefer primary repo checkout (main/master/develop) over unrelated feature worktrees
-      const isPrimaryCheckout =
-        (!ws.path.includes('/orca/worktrees/') &&
-          !ws.path.includes('/orca/workspaces/')) ||
-        ['main', 'master', 'develop', 'dev'].includes((ws.branch ?? '').toLowerCase())
-      if (isPrimaryCheckout) score += 10
-      if (ws.isFocused) score += 30
+      // If both the repo and a specific sub-project worktree (e.g. esg-frontend + vrg-demo for esg-vrg) match, boost that worktree
+      if (matchedRepoToken && matchedWorktreeToken && !ws.isMainWorktree) {
+        score += 18
+      } else {
+        // Otherwise prefer primary repo checkout (main/master/develop/dev) over unrelated feature worktrees
+        const isPrimaryCheckout =
+          ws.isMainWorktree ||
+          (!ws.path.includes('/orca/worktrees/') &&
+            !ws.path.includes('/orca/workspaces/')) ||
+          ['main', 'master', 'develop', 'dev'].includes((ws.branch ?? '').toLowerCase())
+        if (isPrimaryCheckout) score += 10
+      }
+
+      if (ws.isFocused) score += 25
     }
 
     return score
